@@ -143,14 +143,18 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 
 | Area | What it shows | Question it answers |
 | --- | --- | --- |
-| **Needs attention** | Rejected + escalated summary with a "show only these" action | Is there anything I need to handle? |
+| **Needs attention** | Rejected + escalated summary (only shown when such records exist), with a "show only these" action | Is there anything I need to handle? |
 | **Overview** (collapsed by default, expandable) | Four stat cards: auto / manual / rejected / needs-human, with percentages | What is the approval mix in this session? |
 | | Four-segment distribution bar + rule overview: total / self-learned / graduated / trust roots | How much is automated, and how much has been learned? |
 | | 7-day approval trend + top tools | When, and with which tools, do approvals happen? |
 | **Filters** | All / auto / manual / rejected / escalated / attention chips + search over tool, reason and arguments | Find a class of records quickly |
 | **Timeline** | Date-grouped rows with tool, verdict tag, time, reason, real arguments, remember/forget, files and diff snapshots | What exactly happened, why was it allowed, and can I undo it? |
 
-> The overview is collapsed by default so the timeline comes first; expand it for the full stats. Rows with a snapshot show "已保留改动快照 · 可撤销", keeping the undo path next to the decision.
+> The overview is collapsed by default so the timeline comes first; expand it for the full stats. Rows with a snapshot show "已保留改动快照 · 可在下方 diff 中撤销", keeping the undo path next to the decision.
+
+![Approval view schematic (Records tab, overview expanded)](docs/approval-view.svg)
+
+> Schematic only; the actual rendering depends on the plugin.
 
 ### Settings tab
 
@@ -171,10 +175,6 @@ Seven configuration cards:
 | ⑤ Learning | Keys currently learning and their progress |
 | ⑥ Auto learning | Session memory, promotion, graduation, self-learning, two-stage |
 | ⑦ Rule library | Unified rule management + health check + export |
-
-![Approval view schematic](docs/approval-view.svg)
-
-> Schematic only (overview expanded); the actual rendering depends on the plugin.
 
 ## How it works
 
