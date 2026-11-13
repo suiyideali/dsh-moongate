@@ -1192,7 +1192,7 @@
  .ag-file-chip{box-sizing:border-box;max-width:260px;height:20px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:5px;align-items:center;padding:0 7px;font:11px/18px var(--ds-font-family-code);display:inline-flex;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
  .ag-empty{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
  .ag-loading{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
-@@ -133,6 +148,66 @@
+@@ -133,6 +148,69 @@
  .ag-snap-bar{flex:none;display:flex;align-items:center;gap:8px;padding:6px 14px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;flex-wrap:wrap}
  .ag-snap-bar b{color:var(--dsw-alias-label-secondary);font-weight:500}
  .ag-snap-bar-spacer{flex:1 1 auto}
@@ -1254,12 +1254,15 @@
 +.ag-settings-embed .ag-set{max-width:none}
 +.ag-tab-count{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-left:5px;padding:0 4px;border-radius:8px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px}
 +.ag-dash-head{flex:none;display:flex;align-items:center;gap:8px;padding:8px 14px 0}
++.ag-attention{flex:none;display:flex;align-items:center;gap:8px;margin:8px 14px 0;padding:8px 10px;border:1px solid var(--dsw-alias-state-warn-primary);background:var(--dsw-alias-state-warn-tertiary);border-radius:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap}
++.ag-attention-text{flex:1 1 auto;min-width:0}
++.ag-row-meta{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
 +.ag-dash-title{font-size:12px;line-height:18px;font-weight:600;color:var(--dsw-alias-label-secondary)}
 +.ag-dash-hint{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
  `
  
      const VERDICT_LABELS = {
-@@ -274,6 +349,10 @@
+@@ -274,6 +352,10 @@
          title = '已拒绝：' + (notice.justification || notice.reason || '')
          tagText = rejectLabel(notice).replace('人工拒绝', '已拒绝')
          glyph = React.createElement('span', { className: 'ag-notice-glyph-err' }, '✕')
@@ -1270,7 +1273,7 @@
        } else {
          title = (notice.justification || notice.reason || '')
          const label = VERDICT_LABELS[notice.verdict] || notice.verdict || '自动放行'
-@@ -290,7 +369,7 @@
+@@ -290,7 +372,7 @@
                React.createElement('span', { className: 'ag-notice-text' }, title),
              ),
              React.createElement('div', { className: 'ag-notice-meta' },
@@ -1279,7 +1282,7 @@
                React.createElement('span', { className: 'ag-time' }, fmtTime(notice.ts)),
              ),
            ),
-@@ -324,6 +403,12 @@
+@@ -324,6 +406,12 @@
        const [revertDone, setRevertDone] = React.useState(false)
  
        React.useEffect(function () {
@@ -1292,7 +1295,7 @@
          setData(null)
          setError(null)
          setRevertDone(false)
-@@ -363,7 +448,7 @@
+@@ -363,7 +451,7 @@
        const hunks = data && Array.isArray(data.hunks) ? data.hunks : null
        const stats = data ? (data.stats || {}) : null
  
@@ -1301,7 +1304,7 @@
          React.createElement('div', { className: 'ag-diff-panel' },
            React.createElement('div', { className: 'ag-diff-head' },
              React.createElement('div', { className: 'ag-diff-title' },
-@@ -421,7 +506,7 @@
+@@ -421,7 +509,7 @@
            ),
            React.createElement('div', { className: 'ag-diff-foot' },
              revertMsg
@@ -1310,7 +1313,7 @@
                : null,
              React.createElement('button', {
                type: 'button', className: 'ag-set-btn ag-set-btn-primary',
-@@ -439,9 +524,20 @@
+@@ -439,9 +527,20 @@
        const sessionId = (props && (props.sessionId || (props.slotsProps && props.slotsProps.sessionId))) || null
        const [events, setEvents] = React.useState(null)
        const [error, setError] = React.useState(null)
@@ -1320,7 +1323,7 @@
 +      const [counters, setCounters] = React.useState(null) // {consecutive, total, limits} | null
 +      const [kindFilter, setKindFilter] = React.useState('all')
 +      const [viewTab, setViewTab] = React.useState('records')
-+      const [dashOpen, setDashOpen] = React.useState(true)
++      const [dashOpen, setDashOpen] = React.useState(false)
 +      const [query, setQuery] = React.useState('')
 +      const [rulesSnap, setRulesSnap] = React.useState(null)
        const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
@@ -1332,7 +1335,7 @@
  
        const loadSnapStats = function (sid) {
          const q = sid ? ('?sessionId=' + encodeURIComponent(sid)) : ''
-@@ -449,15 +545,43 @@
+@@ -449,15 +548,43 @@
            .then(function (r) { return r.json() })
            .then(function (res) {
              if (!res || !res.ok) return
@@ -1376,7 +1379,7 @@
          const msg = mode === 'all'
            ? '确定清除【全部会话】的 diff 快照？这可能删除其他会话还没看过的改动对比记录，且不可恢复。'
            : '确定清除【本会话】的 diff 快照？仅删除本会话审批产生的改动对比数据，不影响审批记录本身。'
-@@ -470,19 +594,56 @@
+@@ -470,19 +597,56 @@
            body: JSON.stringify(body),
          }).then(function (r) { return r.json() }).then(function (res) {
            if (res && res.ok) {
@@ -1436,7 +1439,7 @@
            fetchEvents(sessionId, 0).then(function (evs) {
              if (!alive) return
              evs.sort(function (a, b) { return b.id - a.id }) // 时间倒序：最新在最上面
-@@ -493,105 +654,336 @@
+@@ -493,105 +657,351 @@
              setError(String((e && e.message) || e))
            })
            loadSnapStats(sessionId)
@@ -1471,6 +1474,7 @@
 +      }
 +      const q = String(query || '').trim().toLowerCase()
 +      const filtered = rows.filter(function (ev) {
++        if (kindFilter === 'attention') return kindKey(ev) === 'rejected' || kindKey(ev) === 'escalate'
 +        if (kindFilter !== 'all' && kindKey(ev) !== kindFilter) return false
 +        if (q === '') return true
 +        return [ev.tool, ev.justification, ev.reason, ev.args, ev.verdict].join(' ').toLowerCase().indexOf(q) >= 0
@@ -1509,6 +1513,7 @@
 +        ['approved', '人工通过', counts.approved],
 +        ['rejected', '已拒绝', counts.rejected],
 +        ['escalate', '需人工介入', counts.escalate],
++        ['attention', '需关注', counts.rejected + counts.escalate],
 +      ]
 +      const scrollToSection = function (id) { const el = document.getElementById(id); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
 +      const stat = function (label, value, sub) {
@@ -1594,6 +1599,9 @@
 +                  }
 +                  return React.createElement('span', chipProps, String(f).split('/').pop())
 +                }))
++              : null,
++            hasSnap
++              ? React.createElement('div', { className: 'ag-row-meta' }, '已保留改动快照 · 可在下方 diff 中撤销')
 +              : null,
 +          ),
 +        )
@@ -1681,6 +1689,16 @@
 +            ),
 +          ),
 +        ),
++        (counts.rejected + counts.escalate) > 0
++          ? React.createElement('div', { className: 'ag-attention' },
++              React.createElement('span', { className: 'ag-attention-text' },
++                '需要关注：' + (counts.rejected + counts.escalate) + ' 条（拒绝 ' + counts.rejected + ' · 升级 ' + counts.escalate + '）'),
++              React.createElement('button', {
++                type: 'button', className: 'ag-chip',
++                onClick: function () { setKindFilter('attention') },
++              }, '只看这些'),
++            )
++          : null,
 +        React.createElement('div', { className: 'ag-toolbar2' },
 +          chips.map(function (c) {
 +            return React.createElement('button', {
@@ -1840,7 +1858,7 @@
                sessionId: sessionId,
                eventId: diffOpen.eventId,
                path: diffOpen.path,
-@@ -606,23 +998,39 @@
+@@ -606,23 +1016,39 @@
        default: React.createElement('span', { className: 'ag-set-tag ag-set-tag-blue' }, '预置'),
        learned: React.createElement('span', { className: 'ag-set-tag ag-set-tag-green' }, '学习沉淀'),
        user: React.createElement('span', { className: 'ag-set-tag ag-set-tag-gray' }, '用户'),
@@ -1882,7 +1900,7 @@
  
        const load = function () {
          fetch('/api/auto-approve/rules', { headers: { 'cache-control': 'no-cache' } })
-@@ -632,6 +1040,13 @@
+@@ -632,6 +1058,13 @@
                setSnapshot(data)
                setThreshold(String(data.config.riskyThreshold))
                setTimeoutMs(String(data.config.judgeTimeoutMs))
@@ -1896,7 +1914,7 @@
                setError(null)
              } else {
                setError('加载规则失败：' + JSON.stringify(data).slice(0, 200))
-@@ -661,6 +1076,31 @@
+@@ -661,6 +1094,31 @@
          }).finally(function () { setBusy(false) })
        }
  
@@ -1928,7 +1946,7 @@
        const setupNow = function () {
          setBusy(true)
          fetch('/api/auto-approve/setup', { method: 'POST' })
-@@ -693,6 +1133,23 @@
+@@ -693,6 +1151,23 @@
        const learnHistory = snapshot.learning && snapshot.learning.history ? snapshot.learning.history : {}
        const statKeys = Object.keys(learnStats)
        const histKeys = Object.keys(learnHistory)
@@ -1952,7 +1970,7 @@
  
        return React.createElement('div', { className: 'ag-set' },
          React.createElement('h3', { className: 'ag-set-title' }, '自动审批'),
-@@ -700,7 +1157,7 @@
+@@ -700,7 +1175,7 @@
            '管理自动审批的放行与阻塞规则：查看当前判定管道、黑/白名单与学习进度，可自行添加规则（如把 edit 加入白名单后自动放行）或终止错误的学习。修改即时生效（热更新）。'),
  
          // ---- 初始化卡片 ----
@@ -1961,7 +1979,7 @@
            React.createElement('div', { className: 'ag-set-card-head' },
              React.createElement('div', { className: 'ag-set-card-title' }, '初始化权限预设'),
              React.createElement('p', { className: 'ag-set-card-sub' },
-@@ -718,7 +1175,7 @@
+@@ -718,7 +1193,7 @@
          ),
  
          // ---- 管道总览 ----
@@ -1970,7 +1988,7 @@
            React.createElement('div', { className: 'ag-set-card-head' },
              React.createElement('div', { className: 'ag-set-card-title' }, '当前判定管道'),
              React.createElement('p', { className: 'ag-set-card-sub' },
-@@ -732,7 +1189,7 @@
+@@ -732,7 +1207,7 @@
          ),
  
          // ---- 黑名单（denyKeywords） ----
@@ -1979,7 +1997,7 @@
            React.createElement('div', { className: 'ag-set-card-head' },
              React.createElement('div', { className: 'ag-set-card-title' },
                React.createElement('span', { className: 'ag-set-stage' }, '① DENY 层'),
-@@ -771,7 +1228,7 @@
+@@ -771,7 +1246,7 @@
          ),
  
          // ---- 白名单（allowRules） ----
@@ -1988,7 +2006,7 @@
            React.createElement('div', { className: 'ag-set-card-head' },
              React.createElement('div', { className: 'ag-set-card-title' },
                React.createElement('span', { className: 'ag-set-stage' }, '② 白名单层'),
-@@ -791,6 +1248,7 @@
+@@ -791,6 +1266,7 @@
                },
              }, '添加'),
            ),
@@ -1996,7 +2014,7 @@
            (cfg.allowRules || []).length === 0
              ? React.createElement('div', { className: 'ag-set-empty' }, '无白名单规则')
              : React.createElement('div', { className: 'ag-set-list' },
-@@ -800,26 +1258,21 @@
+@@ -800,26 +1276,21 @@
                    if (rule.mode) parts.push('mode=' + rule.mode)
                    if (rule.category) parts.push('category=' + rule.category)
                    if (rule.contains) parts.push('contains=' + rule.contains)
@@ -2032,7 +2050,7 @@
            React.createElement('div', { className: 'ag-set-card-head' },
              React.createElement('div', { className: 'ag-set-card-title' },
                React.createElement('span', { className: 'ag-set-stage' }, '③ denyRules 层'),
-@@ -848,8 +1301,41 @@
+@@ -848,8 +1319,41 @@
                ),
          ),
  
@@ -2075,7 +2093,7 @@
            React.createElement('div', { className: 'ag-set-card-head' },
              React.createElement('div', { className: 'ag-set-card-title' },
                React.createElement('span', { className: 'ag-set-stage' }, '⑤ 学习沉淀'),
-@@ -879,37 +1365,190 @@
+@@ -879,37 +1383,190 @@
                ),
          ),
  

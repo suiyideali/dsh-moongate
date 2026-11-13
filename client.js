@@ -206,6 +206,9 @@ window.__ModuleLoader__.load({
 .ag-settings-embed .ag-set{max-width:none}
 .ag-tab-count{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-left:5px;padding:0 4px;border-radius:8px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px}
 .ag-dash-head{flex:none;display:flex;align-items:center;gap:8px;padding:8px 14px 0}
+.ag-attention{flex:none;display:flex;align-items:center;gap:8px;margin:8px 14px 0;padding:8px 10px;border:1px solid var(--dsw-alias-state-warn-primary);background:var(--dsw-alias-state-warn-tertiary);border-radius:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap}
+.ag-attention-text{flex:1 1 auto;min-width:0}
+.ag-row-meta{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
 .ag-dash-title{font-size:12px;line-height:18px;font-weight:600;color:var(--dsw-alias-label-secondary)}
 .ag-dash-hint{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
 `
@@ -529,7 +532,7 @@ window.__ModuleLoader__.load({
       const [counters, setCounters] = React.useState(null) // {consecutive, total, limits} | null
       const [kindFilter, setKindFilter] = React.useState('all')
       const [viewTab, setViewTab] = React.useState('records')
-      const [dashOpen, setDashOpen] = React.useState(true)
+      const [dashOpen, setDashOpen] = React.useState(false)
       const [query, setQuery] = React.useState('')
       const [rulesSnap, setRulesSnap] = React.useState(null)
       const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
@@ -685,6 +688,7 @@ window.__ModuleLoader__.load({
       }
       const q = String(query || '').trim().toLowerCase()
       const filtered = rows.filter(function (ev) {
+        if (kindFilter === 'attention') return kindKey(ev) === 'rejected' || kindKey(ev) === 'escalate'
         if (kindFilter !== 'all' && kindKey(ev) !== kindFilter) return false
         if (q === '') return true
         return [ev.tool, ev.justification, ev.reason, ev.args, ev.verdict].join(' ').toLowerCase().indexOf(q) >= 0
@@ -723,6 +727,7 @@ window.__ModuleLoader__.load({
         ['approved', '人工通过', counts.approved],
         ['rejected', '已拒绝', counts.rejected],
         ['escalate', '需人工介入', counts.escalate],
+        ['attention', '需关注', counts.rejected + counts.escalate],
       ]
       const scrollToSection = function (id) { const el = document.getElementById(id); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
       const stat = function (label, value, sub) {
@@ -809,6 +814,9 @@ window.__ModuleLoader__.load({
                   return React.createElement('span', chipProps, String(f).split('/').pop())
                 }))
               : null,
+            hasSnap
+              ? React.createElement('div', { className: 'ag-row-meta' }, '已保留改动快照 · 可在下方 diff 中撤销')
+              : null,
           ),
         )
       }
@@ -894,6 +902,16 @@ window.__ModuleLoader__.load({
             ),
           ),
         ),
+        (counts.rejected + counts.escalate) > 0
+          ? React.createElement('div', { className: 'ag-attention' },
+              React.createElement('span', { className: 'ag-attention-text' },
+                '需要关注：' + (counts.rejected + counts.escalate) + ' 条（拒绝 ' + counts.rejected + ' · 升级 ' + counts.escalate + '）'),
+              React.createElement('button', {
+                type: 'button', className: 'ag-chip',
+                onClick: function () { setKindFilter('attention') },
+              }, '只看这些'),
+            )
+          : null,
         React.createElement('div', { className: 'ag-toolbar2' },
           chips.map(function (c) {
             return React.createElement('button', {
