@@ -191,6 +191,12 @@ window.__ModuleLoader__.load({
 .ag-search{width:200px}
 .ag-group{display:flex;flex-direction:column;gap:2px}
 .ag-group-label{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption);padding:8px 10px 2px;position:sticky;top:0;background:var(--dsw-alias-bg-layer-1);z-index:1}
+.ag-tabbar{flex:none;display:flex;align-items:center;gap:4px;padding:6px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.ag-tab{border:none;background:transparent;height:28px;padding:0 10px;border-radius:8px;font:inherit;font-size:12px;line-height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative}
+.ag-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.ag-tab-active{background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary)}
+.ag-records{flex:1 1 auto;min-height:0;flex-direction:column}
+.ag-settings-embed{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px 14px 48px}
 `
 
     const VERDICT_LABELS = {
@@ -505,6 +511,7 @@ window.__ModuleLoader__.load({
       const [globalSnapStats, setGlobalSnapStats] = React.useState(null) // {count, bytes} | null（全部会话）
       const [counters, setCounters] = React.useState(null) // {consecutive, total, limits} | null
       const [kindFilter, setKindFilter] = React.useState('all')
+      const [viewTab, setViewTab] = React.useState('records')
       const [query, setQuery] = React.useState('')
       const [rulesSnap, setRulesSnap] = React.useState(null)
       const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
@@ -773,6 +780,16 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'ag-view-title' }, '自动放行审批'),
           React.createElement('div', { className: 'ag-view-sub' }, '本会话审批记录、学习规则与快照（最新在上）'),
         ),
+        React.createElement('div', { className: 'ag-tabbar' },
+          [['records', '记录'], ['settings', '设置']].map(function (t) {
+            return React.createElement('button', {
+              key: t[0], type: 'button',
+              className: 'ag-tab' + (viewTab === t[0] ? ' ag-tab-active' : ''),
+              onClick: function () { setViewTab(t[0]) },
+            }, t[1])
+          }),
+        ),
+        React.createElement('div', { className: 'ag-records', style: { display: viewTab === 'settings' ? 'none' : 'flex' } },
         React.createElement('div', { className: 'ag-dash' },
           React.createElement('div', { className: 'ag-stat-grid' },
             stat('自动放行', counts.auto, pct(counts.auto) + '% · Flash / 规则'),
@@ -891,6 +908,10 @@ window.__ModuleLoader__.load({
                   )
                 }),
               ),
+        ),
+        viewTab === 'settings'
+          ? React.createElement('div', { className: 'ag-settings-embed' }, React.createElement(RulesSettings, {}))
+          : null,
         diffOpen
           ? React.createElement(DiffPanel, {
               sessionId: sessionId,

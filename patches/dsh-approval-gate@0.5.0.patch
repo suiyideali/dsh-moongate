@@ -1187,7 +1187,7 @@
  .ag-file-chip{box-sizing:border-box;max-width:260px;height:20px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:5px;align-items:center;padding:0 7px;font:11px/18px var(--ds-font-family-code);display:inline-flex;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
  .ag-empty{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
  .ag-loading{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
-@@ -133,6 +148,49 @@
+@@ -133,6 +148,55 @@
  .ag-snap-bar{flex:none;display:flex;align-items:center;gap:8px;padding:6px 14px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;flex-wrap:wrap}
  .ag-snap-bar b{color:var(--dsw-alias-label-secondary);font-weight:500}
  .ag-snap-bar-spacer{flex:1 1 auto}
@@ -1234,10 +1234,16 @@
 +.ag-search{width:200px}
 +.ag-group{display:flex;flex-direction:column;gap:2px}
 +.ag-group-label{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption);padding:8px 10px 2px;position:sticky;top:0;background:var(--dsw-alias-bg-layer-1);z-index:1}
++.ag-tabbar{flex:none;display:flex;align-items:center;gap:4px;padding:6px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
++.ag-tab{border:none;background:transparent;height:28px;padding:0 10px;border-radius:8px;font:inherit;font-size:12px;line-height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative}
++.ag-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
++.ag-tab-active{background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary)}
++.ag-records{flex:1 1 auto;min-height:0;flex-direction:column}
++.ag-settings-embed{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px 14px 48px}
  `
  
      const VERDICT_LABELS = {
-@@ -274,6 +332,10 @@
+@@ -274,6 +338,10 @@
          title = '已拒绝：' + (notice.justification || notice.reason || '')
          tagText = rejectLabel(notice).replace('人工拒绝', '已拒绝')
          glyph = React.createElement('span', { className: 'ag-notice-glyph-err' }, '✕')
@@ -1248,7 +1254,7 @@
        } else {
          title = (notice.justification || notice.reason || '')
          const label = VERDICT_LABELS[notice.verdict] || notice.verdict || '自动放行'
-@@ -290,7 +352,7 @@
+@@ -290,7 +358,7 @@
                React.createElement('span', { className: 'ag-notice-text' }, title),
              ),
              React.createElement('div', { className: 'ag-notice-meta' },
@@ -1257,7 +1263,7 @@
                React.createElement('span', { className: 'ag-time' }, fmtTime(notice.ts)),
              ),
            ),
-@@ -439,9 +501,15 @@
+@@ -439,9 +507,16 @@
        const sessionId = (props && (props.sessionId || (props.slotsProps && props.slotsProps.sessionId))) || null
        const [events, setEvents] = React.useState(null)
        const [error, setError] = React.useState(null)
@@ -1266,6 +1272,7 @@
 +      const [globalSnapStats, setGlobalSnapStats] = React.useState(null) // {count, bytes} | null（全部会话）
 +      const [counters, setCounters] = React.useState(null) // {consecutive, total, limits} | null
 +      const [kindFilter, setKindFilter] = React.useState('all')
++      const [viewTab, setViewTab] = React.useState('records')
 +      const [query, setQuery] = React.useState('')
 +      const [rulesSnap, setRulesSnap] = React.useState(null)
        const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
@@ -1274,19 +1281,17 @@
  
        const loadSnapStats = function (sid) {
          const q = sid ? ('?sessionId=' + encodeURIComponent(sid)) : ''
-@@ -451,11 +519,33 @@
-             if (!res || !res.ok) return
-             setSnapStats({ count: res.count || 0, bytes: res.bytes || 0 })
+@@ -453,9 +528,31 @@
              setSnapIds(new Set((res.ids || []).map(String)))
-+          })
-+          .catch(function () {})
+           })
+           .catch(function () {})
 +        fetch('/api/auto-approve/snapshots-stats', { headers: { 'cache-control': 'no-cache' } })
 +          .then(function (r) { return r.json() })
 +          .then(function (res) {
 +            if (!res || !res.ok) return
 +            setGlobalSnapStats({ count: res.count || 0, bytes: res.bytes || 0 })
-           })
-           .catch(function () {})
++          })
++          .catch(function () {})
        }
  
        // 清除快照：mode='session' 仅本会话（默认），mode='all' 清全部（含其他会话，需二次确认）
@@ -1308,7 +1313,7 @@
        const doClearSnapshots = function (mode) {
          const sid = mode === 'session' ? sessionId : ''
          const msg = mode === 'all'
-@@ -470,16 +560,46 @@
+@@ -470,16 +567,46 @@
            body: JSON.stringify(body),
          }).then(function (r) { return r.json() }).then(function (res) {
            if (res && res.ok) {
@@ -1317,11 +1322,11 @@
              else loadSnapStats(sessionId)
            }
          }).catch(function () {})
-+      }
-+
+       }
+ 
 +      const setOverride = function (id, value) {
 +        setRemembered(function (m) { const n = Object.assign({}, m); if (value === undefined) delete n[id]; else n[id] = value; return n })
-       }
++      }
 +      const doRemember = function (ev) {
 +        if (remembered[ev.id] === 'busy') return
 +        setOverride(ev.id, 'busy')
@@ -1346,7 +1351,7 @@
 +          else setOverride(ev.id, 'error:' + ((res && res.error) || '未知错误'))
 +        }).catch(function (e) { setOverride(ev.id, 'error:' + String((e && e.message) || e)) })
 +      }
- 
++
        React.useEffect(function () {
          setEvents(null)
          setError(null)
@@ -1356,7 +1361,7 @@
          if (!sessionId) { setEvents([]); return }
          let alive = true
          const load = function () {
-@@ -493,102 +613,283 @@
+@@ -493,103 +620,298 @@
              setError(String((e && e.message) || e))
            })
            loadSnapStats(sessionId)
@@ -1521,6 +1526,16 @@
 -          React.createElement('div', { className: 'ag-view-sub' }, '本会话中自动放行与人工审批的记录（最新在上）'),
 +          React.createElement('div', { className: 'ag-view-sub' }, '本会话审批记录、学习规则与快照（最新在上）'),
          ),
++        React.createElement('div', { className: 'ag-tabbar' },
++          [['records', '记录'], ['settings', '设置']].map(function (t) {
++            return React.createElement('button', {
++              key: t[0], type: 'button',
++              className: 'ag-tab' + (viewTab === t[0] ? ' ag-tab-active' : ''),
++              onClick: function () { setViewTab(t[0]) },
++            }, t[1])
++          }),
++        ),
++        React.createElement('div', { className: 'ag-records', style: { display: viewTab === 'settings' ? 'none' : 'flex' } },
 +        React.createElement('div', { className: 'ag-dash' },
 +          React.createElement('div', { className: 'ag-stat-grid' },
 +            stat('自动放行', counts.auto, pct(counts.auto) + '% · Flash / 规则'),
@@ -1704,9 +1719,14 @@
 -                }).filter(Boolean),
 +                }),
                ),
++        ),
++        viewTab === 'settings'
++          ? React.createElement('div', { className: 'ag-settings-embed' }, React.createElement(RulesSettings, {}))
++          : null,
          diffOpen
            ? React.createElement(DiffPanel, {
-@@ -606,11 +907,14 @@
+               sessionId: sessionId,
+@@ -606,11 +928,14 @@
        default: React.createElement('span', { className: 'ag-set-tag ag-set-tag-blue' }, '预置'),
        learned: React.createElement('span', { className: 'ag-set-tag ag-set-tag-green' }, '学习沉淀'),
        user: React.createElement('span', { className: 'ag-set-tag ag-set-tag-gray' }, '用户'),
@@ -1723,7 +1743,7 @@
        return 'default'
      }
  
-@@ -620,9 +924,21 @@
+@@ -620,9 +945,21 @@
        const [busy, setBusy] = React.useState(false)
        const [feedback, setFeedback] = React.useState(null)
        const [newKeyword, setNewKeyword] = React.useState('')
@@ -1745,7 +1765,7 @@
  
        const load = function () {
          fetch('/api/auto-approve/rules', { headers: { 'cache-control': 'no-cache' } })
-@@ -632,6 +948,13 @@
+@@ -632,6 +969,13 @@
                setSnapshot(data)
                setThreshold(String(data.config.riskyThreshold))
                setTimeoutMs(String(data.config.judgeTimeoutMs))
@@ -1759,10 +1779,12 @@
                setError(null)
              } else {
                setError('加载规则失败：' + JSON.stringify(data).slice(0, 200))
-@@ -661,6 +984,31 @@
+@@ -659,6 +1003,31 @@
+         }).catch(function (e) {
+           showFeedback('请求失败：' + String((e && e.message) || e), false)
          }).finally(function () { setBusy(false) })
-       }
- 
++      }
++
 +      const copyText = function (text) {
 +        try { navigator.clipboard.writeText(String(text)); showFeedback('已复制：' + text) } catch (e) { showFeedback('复制失败：' + String((e && e.message) || e), false) }
 +      }
@@ -1786,12 +1808,10 @@
 +          setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
 +          showFeedback('已导出规则 JSON')
 +        } catch (e) { showFeedback('导出失败：' + String((e && e.message) || e), false) }
-+      }
-+
+       }
+ 
        const setupNow = function () {
-         setBusy(true)
-         fetch('/api/auto-approve/setup', { method: 'POST' })
-@@ -693,6 +1041,23 @@
+@@ -693,6 +1062,23 @@
        const learnHistory = snapshot.learning && snapshot.learning.history ? snapshot.learning.history : {}
        const statKeys = Object.keys(learnStats)
        const histKeys = Object.keys(learnHistory)
@@ -1815,7 +1835,7 @@
  
        return React.createElement('div', { className: 'ag-set' },
          React.createElement('h3', { className: 'ag-set-title' }, '自动审批'),
-@@ -791,6 +1156,7 @@
+@@ -791,6 +1177,7 @@
                },
              }, '添加'),
            ),
@@ -1823,7 +1843,7 @@
            (cfg.allowRules || []).length === 0
              ? React.createElement('div', { className: 'ag-set-empty' }, '无白名单规则')
              : React.createElement('div', { className: 'ag-set-list' },
-@@ -800,20 +1166,15 @@
+@@ -800,20 +1187,15 @@
                    if (rule.mode) parts.push('mode=' + rule.mode)
                    if (rule.category) parts.push('category=' + rule.category)
                    if (rule.contains) parts.push('contains=' + rule.contains)
@@ -1852,7 +1872,7 @@
                  }),
                ),
          ),
-@@ -848,6 +1209,39 @@
+@@ -848,6 +1230,39 @@
                ),
          ),
  
@@ -1892,7 +1912,7 @@
          // ---- 学习状态（⑤ 学习沉淀） ----
          React.createElement('div', { className: 'ag-set-card' },
            React.createElement('div', { className: 'ag-set-card-head' },
-@@ -879,37 +1273,190 @@
+@@ -879,37 +1294,190 @@
                ),
          ),
  
