@@ -1,7 +1,7 @@
 {
   "name": "dsh-moongate",
   "version": "0.6.1",
-  "description": "DeepSeek Harness 自动审批门控（学习增强 fork，致敬 dsh-approval-gate）",
+  "description": "DeepSeek Harness 自动审批门控：Flash 判定、确认制学习、信任目录与规则库。",
   "type": "module",
   "main": "./src/index.mjs",
   "exports": {
