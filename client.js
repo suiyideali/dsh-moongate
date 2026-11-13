@@ -54,13 +54,13 @@ window.__ModuleLoader__.load({
 .ag-row-line{flex:1 1 auto;flex:none;width:1px;background:var(--dsw-alias-border-l1);min-height:10px}
 .ag-row:last-child .ag-row-line{display:none}
 .ag-row-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
-.ag-row-top{display:flex;align-items:center;gap:8px;min-width:0}
+.ag-row-top{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+.ag-row-tool,.ag-tag{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .ag-row-tool{flex:none;color:var(--dsw-alias-label-primary);font:500 12px/18px var(--ds-font-family-code)}
 .ag-row-reason{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;word-break:break-all;white-space:pre-wrap}
 .ag-row-files{display:flex;flex-wrap:wrap;gap:4px}
 .ag-row-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.ag-dash-cols{display:grid;grid-template-columns:2fr 1fr;gap:10px}
-@media (max-width: 640px){.ag-dash-cols{grid-template-columns:1fr}}
+.ag-dash-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
 .ag-panel{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .ag-panel-title{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);font-weight:500}
 .ag-trend{display:flex;align-items:flex-end;gap:8px;height:90px}
@@ -403,6 +403,12 @@ window.__ModuleLoader__.load({
       const [revertDone, setRevertDone] = React.useState(false)
 
       React.useEffect(function () {
+        const onKey = function (e) { if (e.key === 'Escape') onClose() }
+        window.addEventListener('keydown', onKey)
+        return function () { window.removeEventListener('keydown', onKey) }
+      }, [onClose])
+
+      React.useEffect(function () {
         setData(null)
         setError(null)
         setRevertDone(false)
@@ -442,7 +448,7 @@ window.__ModuleLoader__.load({
       const hunks = data && Array.isArray(data.hunks) ? data.hunks : null
       const stats = data ? (data.stats || {}) : null
 
-      return React.createElement('div', { className: 'ag-diff-overlay', onClick: function (e) { if (e.target === e.currentTarget) onClose() } },
+      return React.createElement('div', { className: 'ag-diff-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': '改动对比', onClick: function (e) { if (e.target === e.currentTarget) onClose() } },
         React.createElement('div', { className: 'ag-diff-panel' },
           React.createElement('div', { className: 'ag-diff-head' },
             React.createElement('div', { className: 'ag-diff-title' },
@@ -500,7 +506,7 @@ window.__ModuleLoader__.load({
           ),
           React.createElement('div', { className: 'ag-diff-foot' },
             revertMsg
-              ? React.createElement('span', { className: revertMsg.indexOf('已发送') === 0 ? 'ag-set-ok' : 'ag-set-err' }, revertMsg)
+              ? React.createElement('span', { className: revertMsg.indexOf('已发送') >= 0 ? 'ag-set-ok' : 'ag-set-err' }, revertMsg)
               : null,
             React.createElement('button', {
               type: 'button', className: 'ag-set-btn ag-set-btn-primary',
@@ -529,6 +535,9 @@ window.__ModuleLoader__.load({
       const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
       const [diffOpen, setDiffOpen] = React.useState(null) // {eventId, path} | null
       const [remembered, setRemembered] = React.useState({}) // eventId -> 'remembered' | 'forgotten' | 'busy' | 'error:…'
+      const sessionRef = React.useRef(sessionId)
+      const tabRef = React.useRef(viewTab)
+      React.useEffect(function () { tabRef.current = viewTab }, [viewTab])
 
       const loadSnapStats = function (sid) {
         const q = sid ? ('?sessionId=' + encodeURIComponent(sid)) : ''
@@ -536,6 +545,7 @@ window.__ModuleLoader__.load({
           .then(function (r) { return r.json() })
           .then(function (res) {
             if (!res || !res.ok) return
+            if (sid !== sessionRef.current) return
             setSnapStats({ count: res.count || 0, bytes: res.bytes || 0 })
             setSnapIds(new Set((res.ids || []).map(String)))
           })
@@ -561,12 +571,17 @@ window.__ModuleLoader__.load({
         if (!sid) return
         fetch('/api/auto-approve/counters?sessionId=' + encodeURIComponent(sid), { headers: { 'cache-control': 'no-cache' } })
           .then(function (r) { return r.json() })
-          .then(function (res) { if (res && res.ok) setCounters({ consecutive: res.consecutive, total: res.total, limits: res.limits }) })
+          .then(function (res) {
+            if (!res || !res.ok) return
+            if (sid !== sessionRef.current) return
+            setCounters({ consecutive: res.consecutive, total: res.total, limits: res.limits })
+          })
           .catch(function () {})
       }
 
       const doClearSnapshots = function (mode) {
         const sid = mode === 'session' ? sessionId : ''
+        if (mode === 'session' && !sid) return
         const msg = mode === 'all'
           ? '确定清除【全部会话】的 diff 快照？这可能删除其他会话还没看过的改动对比记录，且不可恢复。'
           : '确定清除【本会话】的 diff 快照？仅删除本会话审批产生的改动对比数据，不影响审批记录本身。'
@@ -614,14 +629,21 @@ window.__ModuleLoader__.load({
       }
 
       React.useEffect(function () {
+        sessionRef.current = sessionId
         setEvents(null)
         setError(null)
-        loadSnapStats(sessionId)
-        loadCounters(sessionId)
-        loadRules()
-        if (!sessionId) { setEvents([]); return }
+        setSnapStats(null)
+        setGlobalSnapStats(null)
+        setSnapIds(null)
+        setCounters(null)
+        setRulesSnap(null)
+        setDiffOpen(null)
+        setRemembered({})
+        if (!sessionId) { setEvents([]); loadSnapStats(null); return }
         let alive = true
         const load = function () {
+          if (tabRef.current !== 'records') return
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
           fetchEvents(sessionId, 0).then(function (evs) {
             if (!alive) return
             evs.sort(function (a, b) { return b.id - a.id }) // 时间倒序：最新在最上面
@@ -667,19 +689,19 @@ window.__ModuleLoader__.load({
         if (q === '') return true
         return [ev.tool, ev.justification, ev.reason, ev.args, ev.verdict].join(' ').toLowerCase().indexOf(q) >= 0
       })
-      const groups = []
-      const groupMap = {}
-      filtered.forEach(function (ev) {
-        const day = String(ev.ts || '').slice(0, 10) || '未知日期'
-        if (!groupMap[day]) { groupMap[day] = { day: day, items: [] }; groups.push(groupMap[day]) }
-        groupMap[day].items.push(ev)
-      })
       const dayKey = function (ts) {
         const d = new Date(ts)
         if (isNaN(d.getTime())) return ''
         const p = function (n) { return (n < 10 ? '0' : '') + n }
         return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
       }
+      const groups = []
+      const groupMap = {}
+      filtered.forEach(function (ev) {
+        const day = dayKey(ev.ts) || '未知日期'
+        if (!groupMap[day]) { groupMap[day] = { day: day, items: [] }; groups.push(groupMap[day]) }
+        groupMap[day].items.push(ev)
+      })
       const now = new Date()
       const trend = []
       for (let i = 6; i >= 0; i -= 1) {
@@ -764,12 +786,12 @@ window.__ModuleLoader__.load({
               ? React.createElement('div', { className: 'ag-args', title: ev.args }, '参数：' + String(ev.args).slice(0, 240))
               : null,
             React.createElement('div', { className: 'ag-row-actions' },
-              kind !== 'manual-rejected'
+              kind !== 'manual-rejected' && kind !== 'escalate' && ev.mode
                 ? React.createElement('button', {
                     type: 'button', className: 'ag-set-btn ag-btn-xs',
                     disabled: busy,
                     onClick: function () { if (isRemembered) doForget(ev); else doRemember(ev) },
-                    title: isRemembered ? '取消记住：删除该操作的白名单规则' : '把这次操作沉淀为白名单规则',
+                    title: errored ? ('记住失败：' + ov.slice(6)) : (isRemembered ? '取消记住：删除该操作的白名单规则' : '把这次操作沉淀为白名单规则'),
                   }, busy ? '处理中…' : (errored ? '重试' : (isRemembered ? '取消记住' : '记住这次操作')))
                 : null,
             ),
@@ -780,7 +802,9 @@ window.__ModuleLoader__.load({
                     chipProps.className += ' ag-file-chip-snap'
                     chipProps.title = '查看该文件改动对比'
                     chipProps.role = 'button'
+                    chipProps.tabIndex = 0
                     chipProps.onClick = function () { setDiffOpen({ eventId: ev.id, path: f }) }
+                    chipProps.onKeyDown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDiffOpen({ eventId: ev.id, path: f }) } }
                   }
                   return React.createElement('span', chipProps, String(f).split('/').pop())
                 }))
@@ -793,11 +817,13 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'ag-view-title' }, '自动放行审批'),
           React.createElement('div', { className: 'ag-view-sub' }, '本会话审批记录、学习规则与快照（最新在上）'),
         ),
-        React.createElement('div', { className: 'ag-tabbar' },
+        React.createElement('div', { className: 'ag-tabbar', role: 'tablist', 'aria-label': '审批视图' },
           [['records', '记录'], ['settings', '设置']].map(function (t) {
             return React.createElement('button', {
               key: t[0], type: 'button',
               className: 'ag-tab' + (viewTab === t[0] ? ' ag-tab-active' : ''),
+              role: 'tab',
+              'aria-selected': viewTab === t[0],
               onClick: function () { setViewTab(t[0]) },
             }, t[1], t[0] === 'records' ? React.createElement('span', { className: 'ag-tab-count' }, String(total)) : null)
           }),
@@ -805,7 +831,7 @@ window.__ModuleLoader__.load({
         React.createElement('div', { className: 'ag-records', style: { display: viewTab === 'settings' ? 'none' : 'flex' } },
         React.createElement('div', { className: 'ag-dash-head' },
           React.createElement('span', { className: 'ag-dash-title' }, '概览'),
-          React.createElement('span', { className: 'ag-dash-hint' }, '最近 7 天 · 全部 ' + total + ' 条'),
+          React.createElement('span', { className: 'ag-dash-hint' }, '全部 ' + total + ' 条 · 最近 7 天趋势'),
           React.createElement('span', { style: { flex: '1 1 auto' } }),
           React.createElement('button', {
             type: 'button', className: 'ag-set-btn ag-btn-xs',
@@ -873,6 +899,7 @@ window.__ModuleLoader__.load({
             return React.createElement('button', {
               key: c[0], type: 'button',
               className: 'ag-chip' + (kindFilter === c[0] ? ' ag-chip-active' : ''),
+              'aria-pressed': kindFilter === c[0],
               onClick: function () { setKindFilter(c[0]) },
             }, c[1] + ' ' + c[2])
           }),
@@ -885,6 +912,7 @@ window.__ModuleLoader__.load({
           React.createElement('span', { style: { flex: '1 1 auto' } }),
           React.createElement('input', {
             className: 'ag-set-input ag-search', placeholder: '搜索工具 / 理由 / 参数',
+            'aria-label': '搜索审批记录',
             value: query, onChange: function (e) { setQuery(e.target.value) },
           }),
         ),
@@ -914,7 +942,7 @@ window.__ModuleLoader__.load({
           React.createElement('button', {
             type: 'button', className: 'ag-set-btn ag-btn-xs',
             onClick: function () { doClearSnapshots('session') },
-            disabled: !snapStats || snapStats.count === 0,
+            disabled: !sessionId || !snapStats || snapStats.count === 0,
             title: '仅清除本会话的 diff 快照（不影响其他会话）',
           }, '仅清本会话'),
           React.createElement('button', {
@@ -955,6 +983,7 @@ window.__ModuleLoader__.load({
           : null,
         diffOpen
           ? React.createElement(DiffPanel, {
+              key: diffOpen.eventId + '|' + diffOpen.path,
               sessionId: sessionId,
               eventId: diffOpen.eventId,
               path: diffOpen.path,
