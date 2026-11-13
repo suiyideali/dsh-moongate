@@ -15,6 +15,7 @@
 [![CI](https://github.com/suiyideali/dsh-moongate/actions/workflows/ci.yml/badge.svg)](https://github.com/suiyideali/dsh-moongate/actions/workflows/ci.yml)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 [![GitHub stars](https://img.shields.io/github/stars/suiyideali/dsh-moongate?style=social)](https://github.com/suiyideali/dsh-moongate)
+[![awesome · DSH plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 
 DeepSeek Harness 默认会在命令和文件修改前询问你。问题是：真实使用中大多数请求都是安全的，人会疲劳、会闭眼点"允许"——审批就变成了走过场。
 

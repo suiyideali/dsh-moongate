@@ -15,6 +15,7 @@
 [![CI](https://github.com/suiyideali/dsh-moongate/actions/workflows/ci.yml/badge.svg)](https://github.com/suiyideali/dsh-moongate/actions/workflows/ci.yml)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 [![GitHub stars](https://img.shields.io/github/stars/suiyideali/dsh-moongate?style=social)](https://github.com/suiyideali/dsh-moongate)
+[![awesome · DSH plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 
 DeepSeek Harness asks before running commands and modifying files. In real use most requests are safe, so approval turns into click fatigue. `dsh-moongate` does three things:
 
