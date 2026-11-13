@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read package version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v$VERSION"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists; nothing to release."
+            exit 0
+          fi
+          git tag "$TAG"
+          git push origin "$TAG"
+          if [ -f "docs/releases/$TAG.md" ]; then
+            gh release create "$TAG" --title "dsh-moongate $TAG" --notes-file "docs/releases/$TAG.md"
+          else
+            gh release create "$TAG" --title "dsh-moongate $TAG" --generate-notes
+          fi
