@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Syntax check
+        run: |
+          node --check src/index.mjs
+          node --check client.js
+      - name: Smoke tests
+        run: node scripts/smoke.mjs
+      - name: Verify patch applies to upstream 0.5.0
+        run: |
+          set -e
+          curl -fsSL "https://registry.npmjs.org/dsh-approval-gate/-/dsh-approval-gate-0.5.0.tgz" -o /tmp/upstream.tgz
+          mkdir -p /tmp/upstream
+          tar xzf /tmp/upstream.tgz -C /tmp/upstream
+          patch -p1 --dry-run -d /tmp/upstream/package -i "$GITHUB_WORKSPACE/patches/dsh-approval-gate@0.5.0.patch"
+      - name: License check
+        run: test -f LICENSE && grep -q "MIT License" LICENSE

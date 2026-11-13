@@ -1,0 +1,2048 @@
+--- a/src/index.mjs
++++ b/src/index.mjs
+@@ -41,6 +41,7 @@
+ const LEARNING_PATH = join(DATA_DIR, 'learning.json')
+ const AUDIT_PATH = join(DATA_DIR, 'audit.log')
+ const EVENTS_PATH = join(DATA_DIR, 'events.jsonl')
++const MEMORY_PATH = join(DATA_DIR, 'memory.json')
+ const SNAPSHOTS_DIR = join(DATA_DIR, 'snapshots')
+ const PROFILE_PATCH_PATH = join(DSH_HOME, 'profiles', 'web', 'cordis.patch.yml')
+ 
+@@ -298,6 +299,9 @@
+   if (o.kind) ev.kind = o.kind
+   if (o.learningCount !== undefined) ev.learningCount = o.learningCount
+   if (o.threshold !== undefined) ev.threshold = o.threshold
++  if (o.consecutive !== undefined) ev.consecutive = o.consecutive
++  if (o.total !== undefined) ev.total = o.total
++  if (o.args) ev.args = String(o.args).slice(0, 600)
+   if (o.category) ev.category = o.category
+   // path：判定路径标识（hard-category / unknown-category / deny-rule / deny / flash-failed / neutral-reject / neutral-confirm）
+   if (o.path) ev.path = o.path
+@@ -358,16 +362,36 @@
+ function getRulesSnapshot() {
+   reloadConfig()
+   return {
++    warnings: scanOverbroadRules(),
+     config: {
+       version: config.version || 3,
+       denyKeywords: config.denyKeywords || [],
+-      allowRules: config.allowRules || [],
++      allowRules: (config.allowRules || []).map(decorateRule),
+       denyRules: config.denyRules || [],
+       hardCategories: config.hardCategories || [],
+       riskyThreshold: config.riskyThreshold || 3,
+       judgeTimeoutMs: config.judgeTimeoutMs || 20000,
+-      learning: { enabled: learning.enabled !== false }
++      learning: { enabled: learning.enabled !== false },
++      trustRoots: Array.isArray(config.trustRoots) ? config.trustRoots : [],
++      sessionMemory: config.sessionMemory !== false,
++      promotionSessions: config.promotionSessions || 2,
++      graduationThreshold: config.graduationThreshold || 3,
++      graduationSessions: config.graduationSessions || 2,
++      twoStage: config.twoStage !== false,
++      denyEscalateConsecutive: config.denyEscalateConsecutive || 3,
++      denyEscalateTotal: config.denyEscalateTotal || 20,
++      stage1Provider: config.stage1Provider || '',
++      stage1Model: config.stage1Model || '',
++      selfLearn: config.selfLearn === true,
++      selfLearnThreshold: config.selfLearnThreshold || 5,
++      selfLearnSessions: config.selfLearnSessions || 2,
++      selfLearnMaxRules: config.selfLearnMaxRules || 50,
++      onboarded: config.onboarded === true
+     },
++    graduation: Object.keys(memoryStore.graduation || {}).map((sig) => {
++      const g = memoryStore.graduation[sig]
++      return { signature: sig, tool: g.tool, mode: g.mode, count: g.count || 0, sessions: Object.keys(g.sessions || {}).length, lastTs: g.lastTs || 0 }
++    }).sort((a, b) => b.lastTs - a.lastTs),
+     learning: {
+       stats: learning.stats || {},
+       history: learning.history || {}
+@@ -442,7 +466,7 @@
+   reloadConfig()
+ 
+   // 数值类配置（阈值/超时）
+-  if (kind === 'riskyThreshold' || kind === 'judgeTimeoutMs') {
++  if (kind === 'riskyThreshold' || kind === 'judgeTimeoutMs' || kind === 'graduationThreshold' || kind === 'graduationSessions' || kind === 'promotionSessions' || kind === 'denyEscalateConsecutive' || kind === 'denyEscalateTotal' || kind === 'selfLearnThreshold' || kind === 'selfLearnSessions' || kind === 'selfLearnMaxRules') {
+     if (op !== 'set') return { ok: false, error: `${kind} 使用 set 操作` }
+     const n = Number(value)
+     if (!Number.isFinite(n) || n <= 0) return { ok: false, error: '无效数值' }
+@@ -452,6 +476,45 @@
+     return { ok: true, set: true, value: n }
+   }
+ 
++  if (kind === 'onboarded') {
++    if (op !== 'set') return { ok: false, error: 'onboarded 使用 set 操作' }
++    config.onboarded = value === true
++    saveJson(ALLOWLIST_PATH, config)
++    return { ok: true, set: true, value: config.onboarded }
++  }
++  if (kind === 'selfLearn') {
++    if (op !== 'set') return { ok: false, error: 'selfLearn 使用 set 操作' }
++    config.selfLearn = value === true
++    saveJson(ALLOWLIST_PATH, config)
++    return { ok: true, set: true, value: config.selfLearn }
++  }
++  if (kind === 'stage1Provider' || kind === 'stage1Model') {
++    if (op !== 'set') return { ok: false, error: kind + ' 使用 set 操作' }
++    config[kind] = String(value || '').trim()
++    saveJson(ALLOWLIST_PATH, config)
++    return { ok: true, set: true, value: config[kind] }
++  }
++  if (kind === 'twoStage') {
++    if (op !== 'set') return { ok: false, error: 'twoStage 使用 set 操作' }
++    config.twoStage = value !== false
++    saveJson(ALLOWLIST_PATH, config)
++    return { ok: true, set: true, value: config.twoStage }
++  }
++  if (kind === 'sessionMemory') {
++    if (op !== 'set') return { ok: false, error: 'sessionMemory 使用 set 操作' }
++    config.sessionMemory = value !== false
++    saveJson(ALLOWLIST_PATH, config)
++    return { ok: true, set: true, value: config.sessionMemory }
++  }
++  if (kind === 'graduation') {
++    if (op !== 'remove') return { ok: false, error: 'graduation 仅支持 remove' }
++    const sig = String(value || '')
++    if (!sig || !memoryStore.graduation || !memoryStore.graduation[sig]) return { ok: false, error: '未找到该学习进度' }
++    delete memoryStore.graduation[sig]
++    saveJson(MEMORY_PATH, memoryStore)
++    audit(`CONFIG  graduation - ${sig}`)
++    return { ok: true, removed: true }
++  }
+   const list = config[kind]
+   if (!Array.isArray(list)) {
+     // 学习状态终止：kind='learning'，value=key（tool|mode|category）
+@@ -471,8 +534,27 @@
+     return { ok: false, error: `未知规则类型: ${kind}` }
+   }
+ 
++  if (op === 'toggle') {
++    const v = value || {}
++    let found = 0
++    for (const r of list) {
++      if (!r || typeof r !== 'object') continue
++      if (r.tool !== v.tool) continue
++      if ((r.mode || '') !== (v.mode || '')) continue
++      if ((r.category || '') !== (v.category || '')) continue
++      if (String(r.contains || '') !== String(v.contains || '')) continue
++      if (v.signature !== undefined && r.signature !== v.signature && r.graduation !== true) continue
++      r.disabled = r.disabled !== true
++      found++
++    }
++    if (!found) return { ok: false, error: '未找到匹配的规则' }
++    saveJson(ALLOWLIST_PATH, config)
++    audit(`CONFIG  ${kind} toggle count=${found}`)
++    return { ok: true, toggled: true, count: found }
++  }
++
+   if (op === 'add') {
+-    if (kind === 'denyKeywords' || kind === 'hardCategories') {
++    if (kind === 'denyKeywords' || kind === 'hardCategories' || kind === 'trustRoots') {
+       const str = String(value || '').trim()
+       if (!str) return { ok: false, error: '值不能为空' }
+       if (!list.includes(str)) {
+@@ -486,6 +568,9 @@
+       const dup = list.some((r) => r && r.tool === value.tool && r.mode === value.mode && r.category === value.category && r.contains === value.contains)
+       if (!dup) {
+         if (!value.description) value.description = '用户自定义'
++        if (!value.source) value.source = 'user'
++        if (!value.createdAt) value.createdAt = Date.now()
++        if (value.hitCount === undefined) value.hitCount = 0
+         list.push(value)
+         audit(`CONFIG  ${kind} + ${JSON.stringify(value)}`)
+       }
+@@ -496,7 +581,7 @@
+ 
+   if (op === 'remove') {
+     const before = list.length
+-    if (kind === 'denyKeywords' || kind === 'hardCategories') {
++    if (kind === 'denyKeywords' || kind === 'hardCategories' || kind === 'trustRoots') {
+       const str = String(value || '').trim()
+       for (let i = list.length - 1; i >= 0; i--) if (String(list[i]) === str) list.splice(i, 1)
+       if (list.length !== before) audit(`CONFIG  ${kind} - ${str}`)
+@@ -504,7 +589,7 @@
+       const v = value || {}
+       for (let i = list.length - 1; i >= 0; i--) {
+         const r = list[i] || {}
+-        if (r.tool === v.tool && r.mode === v.mode && r.category === v.category && r.contains === v.contains) list.splice(i, 1)
++        if (r.tool === v.tool && r.mode === v.mode && r.category === v.category && r.contains === v.contains && (v.signature === undefined || r.signature === v.signature)) list.splice(i, 1)
+       }
+       if (list.length !== before) audit(`CONFIG  ${kind} - ${JSON.stringify(v)}`)
+     }
+@@ -528,7 +613,7 @@
+ const SYSTEM_PROMPT = [
+   '你是 AI 编程代理的操作风险评估器。DSH 的审批只发生在「沙箱越界」时，即命令需要比当前更宽的权限才能执行。',
+   '',
+-  '你将收到：工具名、请求升级的目标沙箱模式、以及一句操作理由（justification）。',
++  '你将收到：工具名、请求升级的目标沙箱模式、操作理由（justification）；若提供了「工具调用参数」，以参数为准。',
+   '沙箱模式含义：',
+   '- workspace-write：允许写当前工作区（可回补，通常安全）',
+   '- danger-full-access：允许写任意文件/系统（不可回补风险高）',
+@@ -546,7 +631,7 @@
+   '   neutral —— 以上都不符合（如：工作区外普通文件的常规编辑、模型不确定但无明显硬风险）',
+   '',
+   '判定原则：',
+-  '- 只根据 justification 描述判断，不臆测额外风险',
++  '- 优先按「工具调用参数」的实际效果判断；没有参数时才参考 justification（它是模型自述，可能不准）',
+   '- 可回补、常规、不触碰敏感资源的操作 → SAFE',
+   '- 工作区外写入（如 ~/.dsh、个人项目仓库）本身不构成硬风险：判断的是操作内容，不是路径位置',
+   '- 拿不准、但无删除/凭据/远程/系统/批量特征的 → neutral（这是误判补偿区，系统会计数后请用户裁决）',
+@@ -588,12 +673,27 @@
+ function normalizeConfig(raw) {
+   const cfg = raw && typeof raw === 'object' ? raw : {}
+   cfg.denyKeywords = cfg.denyKeywords || DEFAULT_DENY_KEYWORDS
+-  cfg.allowRules = cfg.allowRules || DEFAULT_ALLOW_RULES
++  cfg.allowRules = (cfg.allowRules || DEFAULT_ALLOW_RULES).map(decorateRule)
+   cfg.denyRules = cfg.denyRules || []
+   cfg.hardCategories = cfg.hardCategories || DEFAULT_HARD_CATEGORIES
+   cfg.riskyThreshold = cfg.riskyThreshold || 3
+   cfg.judgeTimeoutMs = cfg.judgeTimeoutMs || 20000
+   cfg.learning = cfg.learning || { enabled: true }
++  cfg.trustRoots = Array.isArray(cfg.trustRoots) ? cfg.trustRoots : []
++  cfg.sessionMemory = cfg.sessionMemory !== false
++  cfg.promotionSessions = Number.isFinite(cfg.promotionSessions) && cfg.promotionSessions > 0 ? cfg.promotionSessions : 2
++  cfg.graduationThreshold = Number.isFinite(cfg.graduationThreshold) && cfg.graduationThreshold > 0 ? cfg.graduationThreshold : 3
++  cfg.graduationSessions = Number.isFinite(cfg.graduationSessions) && cfg.graduationSessions > 0 ? cfg.graduationSessions : 2
++  cfg.twoStage = cfg.twoStage === true
++  cfg.denyEscalateConsecutive = Number.isFinite(cfg.denyEscalateConsecutive) && cfg.denyEscalateConsecutive > 0 ? cfg.denyEscalateConsecutive : 3
++  cfg.denyEscalateTotal = Number.isFinite(cfg.denyEscalateTotal) && cfg.denyEscalateTotal > 0 ? cfg.denyEscalateTotal : 20
++  cfg.stage1Provider = typeof cfg.stage1Provider === 'string' ? cfg.stage1Provider : ''
++  cfg.stage1Model = typeof cfg.stage1Model === 'string' ? cfg.stage1Model : ''
++  cfg.selfLearn = cfg.selfLearn === true
++  cfg.onboarded = cfg.onboarded === true
++  cfg.selfLearnThreshold = Number.isFinite(cfg.selfLearnThreshold) && cfg.selfLearnThreshold > 0 ? cfg.selfLearnThreshold : 5
++  cfg.selfLearnSessions = Number.isFinite(cfg.selfLearnSessions) && cfg.selfLearnSessions > 0 ? cfg.selfLearnSessions : 2
++  cfg.selfLearnMaxRules = Number.isFinite(cfg.selfLearnMaxRules) && cfg.selfLearnMaxRules > 0 ? cfg.selfLearnMaxRules : 50
+   return cfg
+ }
+ 
+@@ -607,7 +707,22 @@
+     hardCategories: DEFAULT_HARD_CATEGORIES,
+     riskyThreshold: 3,
+     judgeTimeoutMs: 20000,
+-    learning: { enabled: true }
++    learning: { enabled: true },
++    trustRoots: [],
++    sessionMemory: true,
++    promotionSessions: 2,
++    graduationThreshold: 3,
++    graduationSessions: 2,
++    twoStage: false,
++    denyEscalateConsecutive: 3,
++    denyEscalateTotal: 20,
++    stage1Provider: '',
++    stage1Model: '',
++    selfLearn: false,
++    onboarded: false,
++    selfLearnThreshold: 5,
++    selfLearnSessions: 2,
++    selfLearnMaxRules: 50
+   }
+   saveJson(ALLOWLIST_PATH, config)
+ } else {
+@@ -624,8 +739,229 @@
+     config = normalizeConfig(disk)
+     if (!config.version) config.version = prev.version || 3
+     learning.enabled = config.learning.enabled !== false
++  }
++}
++
++// 按 id 找审批事件；id 可能因热重载竞态重复，允许用 tool/mode/justification 精确消歧
++function findApprovalEvent(eventId, body) {
++  let fallback = null
++  try {
++    for (const line of readFileSync(EVENTS_PATH, 'utf8').split('\n')) {
++      if (!line.trim()) continue
++      let ev
++      try { ev = JSON.parse(line) } catch { continue }
++      if (Number(ev.id) !== eventId) continue
++      if (!fallback) fallback = ev
++      if (body && typeof body.justification === 'string') {
++        const j = String(ev.justification || ev.reason || '')
++        if (j === body.justification && (!body.tool || String(ev.tool || '') === String(body.tool))) return ev
++      }
++    }
++  } catch { /* 读取失败 */ }
++  return fallback
++}
++// ---- 拒绝计数与升级（deny-and-continue）：连续 3 次或累计 20 次拒绝 → 提示人工介入 ----
++const rejectCounters = new Map() // sessionId -> { consecutive, total }
++function recordOutcome(sid, tool, mode, reason, justification, category, outcome) {
++  if (!sid) return
++  let c = rejectCounters.get(sid)
++  if (!c) { c = { consecutive: 0, total: 0 }; rejectCounters.set(sid, c) }
++  if (outcome === 'allowed-once') { c.consecutive = 0; return }
++  if (outcome !== 'rejected') return
++  c.consecutive += 1
++  c.total += 1
++  const limitC = config.denyEscalateConsecutive || 3
++  const limitT = config.denyEscalateTotal || 20
++  if (c.consecutive === limitC || c.total === limitT) {
++    recordApprovalEvent(sid, tool, mode, reason, justification, 'escalated', {
++      kind: 'escalate', category: category || '', path: 'escalate', consecutive: c.consecutive, total: c.total,
++    })
++    audit(`ESCALATE ${sid} tool=${tool} consecutive=${c.consecutive} total=${c.total} → 建议人工介入`)
++  }
++  if (rejectCounters.size > 100) { const first = rejectCounters.keys().next().value; rejectCounters.delete(first) }
++}
++// ---- 自动学习：会话内批准记忆 + 跨会话晋升 + 负反馈（无需人工点击） ----
++let memoryStore = loadJson(MEMORY_PATH, { cross: {} })
++if (!memoryStore || typeof memoryStore !== 'object') memoryStore = { cross: {} }
++if (!memoryStore.cross || typeof memoryStore.cross !== 'object') memoryStore.cross = {}
++if (!memoryStore.graduation || typeof memoryStore.graduation !== 'object') memoryStore.graduation = {}
++if (!memoryStore.selfLearn || typeof memoryStore.selfLearn !== 'object') memoryStore.selfLearn = {}
++const sessionMemory = new Map() // sessionId -> Map<sig, {tool, mode, fp, category, ts}>
++const MEMORY_TTL_MS = 12 * 60 * 60 * 1000
++function memoryKey(tool, mode, fp) { return `${tool}|${mode || 'none'}|${String(fp || '')}` }
++function sessionMemoryHit(sessionId, tool, mode, fp) {
++  if (!config.sessionMemory || !fp) return null
++  const m = sessionMemory.get(sessionId)
++  if (!m) return null
++  const entry = m.get(memoryKey(tool, mode, fp))
++  if (!entry) return null
++  if (Date.now() - entry.ts > MEMORY_TTL_MS) { m.delete(memoryKey(tool, mode, fp)); return null }
++  if (entry.category !== 'neutral') return null
++  return entry
++}
++function rememberApproved(sessionId, tool, mode, fp, category, justification) {
++  if (!config.sessionMemory || category !== 'neutral' || !fp) return null
++  let m = sessionMemory.get(sessionId)
++  if (!m) { m = new Map(); sessionMemory.set(sessionId, m) }
++  m.set(memoryKey(tool, mode, fp), { tool, mode, fp, category, ts: Date.now() })
++  const key = memoryKey(tool, mode, fp)
++  const prev = memoryStore.cross[key] || { tool, mode, fp, category, sessions: {}, count: 0, lastTs: 0 }
++  prev.sessions = prev.sessions || {}
++  prev.sessions[sessionId] = Date.now()
++  prev.count = (prev.count || 0) + 1
++  prev.lastTs = Date.now()
++  memoryStore.cross[key] = prev
++  saveJson(MEMORY_PATH, memoryStore)
++  const sessions = Object.keys(prev.sessions).length
++  // 跨会话沉淀只接受路径指纹，避免把泛词（如 commit/review）变成全局白名单
++  const safeForRule = /[\/~]/.test(String(fp))
++  const denyHit = (config.denyRules || []).some((r) => matchRule([r], tool, mode, 'neutral', justification))
++  const intentOk = explicitIntent(justification)
++  const requiredSessions = intentOk ? (config.promotionSessions || 2) : Math.max((config.promotionSessions || 2) + 1, 3)
++  if (sessions >= requiredSessions && safeForRule && !denyHit) {
++    const exists = (config.allowRules || []).some((r) => r.tool === tool && (r.mode || '') === (mode || '') && String(r.contains || '') === fp)
++    if (!exists) {
++      const rule = { tool, contains: fp, description: '自动沉淀：跨会话人工确认' }
++      if (mode) rule.mode = mode
++      config.allowRules.push(rule)
++      saveJson(ALLOWLIST_PATH, config)
++      audit(`PROMOTE ${key} 跨会话 ${sessions} 次人工确认，已沉淀白名单 ${JSON.stringify(rule)}`)
++    }
++    return { promoted: true, sessions }
+   }
++  if (sessions >= (config.promotionSessions || 2) && (!safeForRule || denyHit || !intentOk)) {
++    audit(`PROMOTE-SKIP ${key} sessions=${sessions} path=${safeForRule} deny=${denyHit} intent=${intentOk}`)
++  }
++  return { promoted: false, sessions }
+ }
++// 自学习：从 Flash 的 SAFE 判定中学习（不需要人工确认）；有路径签名、无拒绝历史、跨会话才毕业
++function recordSelfObservation(sessionId, toolName, mode, justification, eventId) {
++  if (config.selfLearn !== true) return null
++  const sig = opSignature(toolName, mode, justification)
++  if (!sig) return null
++  const denyHit = (config.denyRules || []).some((r) => matchRule([r], toolName, mode, 'neutral', justification))
++  if (denyHit) return null
++  const prev = memoryStore.selfLearn[sig] || {
++    tool: toolName, mode: mode || '', patterns: signaturePaths(justification),
++    count: 0, sessions: {}, events: [], lastTs: 0,
++  }
++  prev.sessions = prev.sessions || {}
++  prev.sessions[sessionId] = Date.now()
++  prev.count = (prev.count || 0) + 1
++  prev.lastTs = Date.now()
++  prev.events = (prev.events || []).concat(eventId === undefined ? [] : [eventId]).slice(-10)
++  memoryStore.selfLearn[sig] = prev
++  saveJson(MEMORY_PATH, memoryStore)
++  const threshold = config.selfLearnThreshold || 5
++  const sessions = Object.keys(prev.sessions).length
++  if (prev.count >= threshold && sessions >= (config.selfLearnSessions || 2)) {
++    const exists = (config.allowRules || []).some((r) => r && r.signature === sig && (r.graduation || r.source === 'self-learned'))
++    if (!exists) {
++      const selfCount = (config.allowRules || []).filter((r) => r && r.source === 'self-learned').length
++      if (selfCount >= (config.selfLearnMaxRules || 50)) {
++        audit(`SELFLEARN-CAP ${sig} 已达自学习规则上限 ${config.selfLearnMaxRules || 50}`)
++        return { graduated: false, count: prev.count, sessions, capped: true }
++      }
++      const rule = {
++        tool: toolName, signature: sig, source: 'self-learned',
++        description: `自学习：Flash 连续 SAFE ${prev.count} 次（${sessions} 个会话）`,
++        createdAt: Date.now(), hitCount: 0, evidenceEventIds: (prev.events || []).slice(-5),
++      }
++      if (mode) rule.mode = mode
++      config.allowRules.push(rule)
++      saveJson(ALLOWLIST_PATH, config)
++      audit(`SELFLEARN ${sig} count=${prev.count} sessions=${sessions} 已沉淀自学习规则`)
++    }
++    return { graduated: true, count: prev.count, sessions }
++  }
++  return { graduated: false, count: prev.count, sessions }
++}
++function recordSignatureApproval(sessionId, toolName, mode, justification) {
++  const sig = opSignature(toolName, mode, justification)
++  if (!sig) return null
++  const prev = memoryStore.graduation[sig] || {
++    tool: toolName, mode: mode || '', patterns: signaturePaths(justification),
++    count: 0, sessions: {}, lastTs: 0,
++  }
++  prev.sessions = prev.sessions || {}
++  prev.sessions[sessionId] = Date.now()
++  const fpNow = extractOperationFingerprint(justification) || ''
++  prev.fps = Array.isArray(prev.fps) ? prev.fps : []
++  if (fpNow && prev.fps.indexOf(fpNow) < 0) prev.fps.push(fpNow)
++  prev.count = (prev.count || 0) + 1
++  prev.lastTs = Date.now()
++  memoryStore.graduation[sig] = prev
++  saveJson(MEMORY_PATH, memoryStore)
++  const threshold = config.graduationThreshold || 3
++  const sessions = Object.keys(prev.sessions).length
++  const distinctFps = (prev.fps || []).length
++  const denyHit = (config.denyRules || []).some((r) => matchRule([r], toolName, mode, 'neutral', justification))
++  const intentOk = explicitIntent(justification)
++  const needCount = intentOk ? threshold : threshold + 1
++  if (prev.count >= needCount && sessions >= (config.graduationSessions || 2) && distinctFps >= 2 && !denyHit) {
++    const exists = (config.allowRules || []).some((r) => r && r.graduation && r.signature === sig)
++    if (!exists) {
++      const rule = {
++        tool: toolName, graduation: true, signature: sig,
++        description: `自动毕业：同类操作累计 ${prev.count} 次人工确认（${sessions} 个会话）`,
++        source: 'graduated',
++        createdAt: Date.now(),
++        hitCount: 0,
++      }
++      if (mode) rule.mode = mode
++      config.allowRules.push(rule)
++      saveJson(ALLOWLIST_PATH, config)
++      audit(`GRADUATE ${sig} count=${prev.count} sessions=${sessions} 已沉淀毕业规则`)
++    }
++    return { graduated: true, count: prev.count, sessions }
++  }
++  if (prev.count >= threshold && (distinctFps < 2 || denyHit || !intentOk)) {
++    audit(`GRADUATE-SKIP ${sig} count=${prev.count} sessions=${sessions} fps=${distinctFps} deny=${denyHit} intent=${intentOk}`)
++  }
++  return { graduated: false, count: prev.count, sessions }
++}
++function demoteLearned(tool, mode, fp, why, justification) {
++  let removed = 0
++  if (fp) {
++    const before = (config.allowRules || []).length
++    config.allowRules = (config.allowRules || []).filter((r) => !(r && r.tool === tool && (r.mode || '') === (mode || '') && String(r.contains || '') === fp))
++    removed += before - config.allowRules.length
++    const key = memoryKey(tool, mode, fp)
++    if (memoryStore.cross[key]) { delete memoryStore.cross[key]; saveJson(MEMORY_PATH, memoryStore); removed += 1 }
++    for (const m of sessionMemory.values()) m.delete(key)
++    const sig = opSignature(tool, mode, justification)
++    if (sig) {
++      if (memoryStore.graduation[sig]) { delete memoryStore.graduation[sig]; saveJson(MEMORY_PATH, memoryStore); removed += 1 }
++      if (memoryStore.selfLearn[sig]) { delete memoryStore.selfLearn[sig]; saveJson(MEMORY_PATH, memoryStore); removed += 1 }
++      const beforeSig = (config.allowRules || []).length
++      config.allowRules = (config.allowRules || []).filter((r) => !(r && r.signature === sig && (r.graduation || r.source === 'self-learned')))
++      removed += beforeSig - config.allowRules.length
++    }
++    if (removed) {
++      saveJson(ALLOWLIST_PATH, config)
++      audit(`NEGATIVE ${tool} mode=${mode || 'none'} fp=${fp} why=${why} 已撤销 ${removed} 条学习记录/规则`)
++    }
++  }
++  return removed
++}
++function trustHit(justification) {
++  const roots = Array.isArray(config.trustRoots) ? config.trustRoots : []
++  if (roots.length === 0) return null
++  const text = String(justification || '')
++  const paths = []
++  for (const m of text.matchAll(/(?:~\/|\/)[\w@.\/-]+/g)) paths.push(m[0])
++  if (paths.length === 0) return null
++  for (const raw of paths) {
++    const abs = resolveAbsPath(raw, '')
++    for (const root of roots) {
++      const r = String(root || '').trim()
++      if (!r) continue
++      const rabs = resolveAbsPath(r, '')
++      if (abs === rabs || abs.startsWith(rabs.endsWith('/') ? rabs : rabs + '/')) return r
++    }
++  }
++  return null
++}
+ 
+ const learning = loadJson(LEARNING_PATH, { enabled: true, stats: {}, history: {} })
+ // enabled 以 allowlist.json 的 learning 段为单一配置源（旧 learning.json 的 enabled 仅作兼容回退）
+@@ -658,19 +994,118 @@
+ }
+ 
+ // 规则匹配：tool / mode / category / contains 均满足（缺省表示任意）
++// 操作签名：工具 + 模式 + 归一化路径模式（目录 + 扩展名），用于泛化「同类但指纹不同」的操作
++function signaturePaths(text) {
++  const s = String(text || '')
++  const out = new Set()
++  for (const m of s.matchAll(/(?:~\/|\/)[\w@.\/-]+/g)) {
++    const raw = m[0].replace(/[，。；、,.;:：\s]+$/g, '')
++    if (!raw || raw.length < 4) continue
++    const abs = resolveAbsPath(raw, '')
++    let p = abs
++    const home = homedir()
++    if (p === home || p.startsWith(home + '/')) p = '~' + p.slice(home.length)
++    const slash = p.lastIndexOf('/')
++    const dir = slash > 0 ? p.slice(0, slash) : p
++    const base = slash >= 0 ? p.slice(slash + 1) : p
++    const dot = base.lastIndexOf('.')
++    const ext = dot > 0 ? base.slice(dot) : ''
++    out.add(dir + '/*' + ext)
++  }
++  return Array.from(out).sort()
++}
++function opSignature(toolName, mode, justification) {
++  const patterns = signaturePaths(justification)
++  if (patterns.length === 0) return null
++  return `${toolName}|${mode || 'none'}|${patterns.join(',')}`
++}
+ function matchRule(rules, toolName, mode, category, justification) {
+   const list = rules || []
+   const j = String(justification || '').toLowerCase()
+   for (const rule of list) {
++    if (rule.disabled === true) continue
+     if (rule.tool && rule.tool !== toolName) continue
+     if (rule.mode && rule.mode !== mode) continue
+     if (rule.category && rule.category !== category) continue
++    if (rule.signature && rule.signature !== opSignature(toolName, mode, justification)) continue
+     if (rule.contains && !j.includes(String(rule.contains).toLowerCase())) continue
+     return rule
+   }
+   return null
+ }
+ 
++// 用户意图信号：理由里是否明确说明是用户要求（用于学习晋升/毕业的额外证据）
++function explicitIntent(text) {
++  return /用户(要求|指示|选择|确认|同意|批准|让我|要求我)|按用户|用户已|用户同意|user (asked|requested|approved|confirmed)/i.test(String(text || ''))
++}
++// 工具参数脱敏 + 截断（送给 Flash 判定用）
++function redactArgs(text) {
++  let out = String(text || '')
++  out = out.replace(/("(?:[^"]*(?:api[_-]?key|token|secret|password|passwd|authorization|cookie)[^"]*)"\s*:\s*")[^"]*(")/gi, '$1***$2')
++  out = out.replace(/(Bearer\s+)[A-Za-z0-9._\-]+/gi, '$1***')
++  return out.slice(0, 4000)
++}
++// 过宽规则扫描：只提示不自动删（项目名等合法短词会误报）
++const GENERIC_CONTAINS = new Set(['commit', 'review', 'ticket', 'partial', 'merge', 'push', 'deploy', 'install', 'update', 'build', 'test', 'fix', 'sync', 'clean', 'copy', 'move', 'delete', 'remove', 'change', 'config', 'profile', 'scripts', 'docs', 'main', 'master', 'pr', 'prs', 'crud', 'api'])
++function ruleReasons(rule) {
++  const reasons = []
++  if (!rule || typeof rule !== 'object') return reasons
++  const c = String(rule.contains || '')
++  const hasPath = /[\/~]/.test(c)
++  if (rule.source === 'default' || String(rule.description || '').indexOf('工作区写入') >= 0) return reasons
++  if (!rule.tool && !c && !rule.category && !rule.signature) reasons.push('未限定 tool/contains，等于放行整个模式')
++  if (c && !hasPath && c.length <= 12) {
++    if (GENERIC_CONTAINS.has(c.toLowerCase())) reasons.push('contains 是通用词「' + c + '」，会匹配到未确认的操作')
++    else reasons.push('contains 是不含路径/文件名的短词「' + c + '」，可能过宽')
++  }
++  if (rule.mode === 'danger-full-access' && !rule.tool && !c && !rule.signature) reasons.push('danger-full-access 裸规则')
++  return reasons
++}
++function ruleSuggestion(rule) {
++  const c = String(rule && rule.contains || '')
++  const hasPath = /[\/~]/.test(c)
++  if (!rule.tool) return '补上 tool 限定（如 bash/edit），并把 contains 换成具体路径或文件名'
++  if (c && !hasPath) return '删除该规则，改为对具体操作点「记住」生成路径指纹；或在 ⑦ 规则库 → 信任目录 添加或配置 trustRoots 限定目录'
++  if (rule.mode === 'danger-full-access' && !c) return '加 contains（具体路径）或改用 trustRoots'
++  return '收窄条件（tool + mode + 具体路径/文件名）'
++}
++function scanOverbroadRules() {
++  const allowRules = (config.allowRules || []).map((rule, index) => {
++    const reasons = ruleReasons(rule)
++    return reasons.length ? { index, rule, reasons, suggestion: ruleSuggestion(rule) } : null
++  }).filter(Boolean)
++  const trustRoots = []
++  for (const root of Array.isArray(config.trustRoots) ? config.trustRoots : []) {
++    const abs = resolveAbsPath(root, '')
++    if (abs === homedir() || abs === '/' || abs === '/Users' || abs === '/tmp') {
++      trustRoots.push({ root, reasons: ['信任目录范围过大：' + abs] })
++    }
++  }
++  return { allowRules, trustRoots }
++}
++// 规则元数据：来源 / 创建时间 / 命中次数 / 最近命中
++function ruleSourceOf(rule) {
++  const d = String((rule && rule.description) || '')
++  if (rule && rule.graduation) return 'graduated'
++  if (d.indexOf('用户记住') === 0) return 'remember'
++  if (d.indexOf('自动沉淀') === 0 || d.indexOf('人工确认后') >= 0 || d.indexOf('flash 同类') >= 0 || d.indexOf('自动毕业') === 0) return 'learned'
++  if (d === '用户自定义') return 'user'
++  return 'default'
++}
++function decorateRule(rule) {
++  if (!rule || typeof rule !== 'object') return rule
++  if (!rule.source) rule.source = ruleSourceOf(rule)
++  if (rule.hitCount === undefined) rule.hitCount = 0
++  if (rule.disabled === undefined) rule.disabled = false
++  return rule
++}
++function touchRuleHit(rule) {
++  try {
++    rule.hitCount = (rule.hitCount || 0) + 1
++    rule.lastHit = Date.now()
++    saveJson(ALLOWLIST_PATH, config)
++  } catch { /* 统计失败不影响放行 */ }
++}
+ // 计数/学习 key：tool|mode|category（category 为 flash 判定的类别，neutral 走计数）
+ function learnKey(toolName, mode, category) {
+   return `${toolName}|${mode || 'none'}|${category || 'none'}`
+@@ -685,6 +1120,26 @@
+   'remove', 'removes', 'adding', 'change', 'changes', 'changing', 'set', 'clean',
+   'test', 'verify', 'check', 'fix', 'fixes', 'fixing', 'modify', 'modifies'
+ ])
++// 记住规则专用指纹：只接受路径/目录片段（含 / 或 ~），避免 "commit"/"review" 这类泛词变成过宽规则
++function pathFingerprint(text) {
++  const s = String(text || '')
++  const candidates = []
++  for (const m of s.matchAll(/(?:~\/|\/)[\w@.\/-]+/g)) {
++    const seg = m[0].replace(/[，。；、,.;:：\s]+$/g, '').trim()
++    if (seg.length >= 5 && seg.length <= 120) candidates.push(seg)
++  }
++  if (candidates.length === 0) return null
++  candidates.sort((a, b) => b.length - a.length)
++  return candidates[0].slice(0, 80)
++}
++// 记住规则指纹：优先路径片段；没有路径时退化为整条操作描述（截断），避免直接报错
++function rememberFingerprint(text) {
++  const p = pathFingerprint(text)
++  if (p) return p
++  const s = String(text || '').replace(/\s+/g, ' ').trim()
++  if (s.length < 8) return null
++  return s.slice(0, 120)
++}
+ function extractOperationFingerprint(text) {
+   const s = String(text || '')
+   const candidates = []
+@@ -726,6 +1181,41 @@
+     const agentDefaultModel = ctx.get('agentDefaultModel')
+     const PRESET_NAME = 'auto-approve'
+ 
++    // ---- 真实工具调用缓存：approval 请求带 callId，用它取实际参数（而不是模型自述） ----
++    const callCache = new Map() // sessionId -> Map<callId, { name, arguments, ts }>
++    const CALL_CACHE_MAX = 400
++    const SESSION_CACHE_MAX = 60
++    try {
++      ctx.on('session/event', (session, event) => {
++        try {
++          if (!event || event.type !== 'tool/call') return
++          const sid = session && session.id ? String(session.id) : ''
++          if (!sid) return
++          const data = event.data || {}
++          if (!data.callId) return
++          let m = callCache.get(sid)
++          if (!m) {
++            m = new Map()
++            callCache.set(sid, m)
++            while (callCache.size > SESSION_CACHE_MAX) {
++              const first = callCache.keys().next().value
++              callCache.delete(first)
++            }
++          }
++          const cid = String(data.callId)
++          m.delete(cid)
++          m.set(cid, { name: String(data.name || ''), arguments: String(data.arguments || '').slice(0, 8000), ts: Date.now() })
++          while (m.size > CALL_CACHE_MAX) { m.delete(m.keys().next().value) }
++        } catch (error) { /* 缓存失败不影响审批 */ }
++      })
++    } catch (error) {
++      console.error(`[${NAME}] session/event 订阅失败，将回落 justification 判定`, error)
++    }
++    const getToolCall = (sid, callId) => {
++      const m = callCache.get(String(sid))
++      return m ? m.get(String(callId)) || null : null
++    }
++
+     // ---- 自动放行事件 API（client 审查界面轮询；按会话过滤 + since 增量） ----
+     let offEventsRoute = null
+     try {
+@@ -739,6 +1229,7 @@
+             const sessionId = url.searchParams.get('sessionId') || ''
+             const since = Number.parseInt(url.searchParams.get('since') || '0', 10) || 0
+             const events = []
++            reloadConfig()
+             try {
+               const text = readFileSync(EVENTS_PATH, 'utf8')
+               for (const line of text.split('\n')) {
+@@ -747,7 +1238,10 @@
+                   const ev = JSON.parse(line)
+                   if (!Number.isInteger(ev.id) || ev.id <= since) continue
+                   if (sessionId && ev.sessionId !== sessionId) continue
+-                  events.push(ev)
++                  // 该事件是否已有「记住」规则（按工具+模式+操作指纹精确匹配），供界面按钮还原状态
++                  const fp = rememberFingerprint(ev.justification || ev.reason || '')
++                  const remembered = Boolean(fp) && (config.allowRules || []).some((r) => r && !r.category && r.tool === ev.tool && (r.mode || '') === (ev.mode || '') && String(r.contains || '') === fp)
++                  events.push(Object.assign({}, ev, { remembered }))
+                 } catch { /* 跳过坏行 */ }
+               }
+             } catch { /* events 文件不存在：返回空 */ }
+@@ -766,6 +1260,10 @@
+     // ---- 规则管理 API（设置页：查看/修改放行与阻塞规则 + 一键初始化） ----
+     let offRulesRoute = null
+     let offSetupRoute = null
++    let offRememberRoute = null
++    let offForgetRoute = null
++    let offCountersRoute = null
++    let offCountersResetRoute = null
+     try {
+       if (ctx.webServer && typeof ctx.webServer.register === 'function') {
+         offRulesRoute = ctx.webServer.register({
+@@ -814,7 +1312,103 @@
+             }
+           },
+         })
+-        console.log(`[${NAME}] 规则/初始化 API 已注册：/api/auto-approve/rules, /setup`)
++        offRememberRoute = ctx.webServer.register({
++          kind: 'exact',
++          path: '/api/auto-approve/remember',
++          handler: async (req, res) => {
++            const send = (code, obj) => {
++              res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-cache' })
++              res.end(JSON.stringify(obj))
++            }
++            try {
++              if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
++              const body = await readBody(req)
++              const eventId = Number(body.eventId)
++              if (!Number.isFinite(eventId)) return send(400, { ok: false, error: 'eventId 无效' })
++              reloadConfig()
++              const event = findApprovalEvent(eventId, body)
++              if (!event) return send(404, { ok: false, error: '未找到该审批事件' })
++              const tool = String(event.tool || '')
++              const mode = String(event.mode || '')
++              const justification = String(event.justification || event.reason || '')
++              if (!tool || !mode) return send(400, { ok: false, error: '该事件不是沙箱越界请求，无法记住' })
++              const fingerprint = rememberFingerprint(justification)
++              if (!fingerprint) return send(400, { ok: false, error: '该操作的描述太短，无法提取可记住的指纹' })
++              const rule = { tool, mode, contains: fingerprint, description: '用户记住：' + new Date().toISOString().slice(0, 10), source: 'remember', createdAt: Date.now(), hitCount: 0, evidenceEventId: eventId }
++              const exists = (config.allowRules || []).some((r) => !r.category && r.tool === rule.tool && (r.mode || '') === rule.mode && String(r.contains || '') === rule.contains)
++              if (!exists) {
++                config.allowRules = config.allowRules || []
++                config.allowRules.push(rule)
++                saveJson(ALLOWLIST_PATH, config)
++                audit(`REMEMBER event=${eventId} tool=${tool} mode=${mode} contains=${fingerprint}`)
++              }
++              return send(200, { ok: true, rule, already: exists })
++            } catch (e) {
++              return send(400, { ok: false, error: String((e && e.message) || e) })
++            }
++          },
++        })
++        offForgetRoute = ctx.webServer.register({
++          kind: 'exact',
++          path: '/api/auto-approve/forget',
++          handler: async (req, res) => {
++            const send = (code, obj) => {
++              res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-cache' })
++              res.end(JSON.stringify(obj))
++            }
++            try {
++              if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
++              const body = await readBody(req)
++              const eventId = Number(body.eventId)
++              if (!Number.isFinite(eventId)) return send(400, { ok: false, error: 'eventId 无效' })
++              reloadConfig()
++              const event = findApprovalEvent(eventId, body)
++              if (!event) return send(404, { ok: false, error: '未找到该审批事件' })
++              const fp = rememberFingerprint(event.justification || event.reason || '')
++              if (!fp) return send(400, { ok: false, error: '该操作没有可提取的指纹' })
++              const before = (config.allowRules || []).length
++              config.allowRules = (config.allowRules || []).filter((r) => !(r && !r.category && r.tool === event.tool && (r.mode || '') === (event.mode || '') && String(r.contains || '') === fp))
++              const removed = before - config.allowRules.length
++              if (removed > 0) {
++                saveJson(ALLOWLIST_PATH, config)
++                audit(`FORGET  event=${eventId} tool=${event.tool} mode=${event.mode || 'none'} contains=${fp}`)
++              }
++              return send(200, { ok: true, removed, already: removed === 0 })
++            } catch (e) {
++              return send(400, { ok: false, error: String((e && e.message) || e) })
++            }
++          },
++        })
++        offCountersRoute = ctx.webServer.register({
++          kind: 'exact',
++          path: '/api/auto-approve/counters',
++          handler: async (req, res) => {
++            const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-cache' }); res.end(JSON.stringify(obj)) }
++            try {
++              const url = new URL(req.url, 'http://localhost')
++              const sid = url.searchParams.get('sessionId') || ''
++              const c = rejectCounters.get(sid) || { consecutive: 0, total: 0 }
++              return send(200, { ok: true, sessionId: sid, consecutive: c.consecutive, total: c.total, limits: { consecutive: config.denyEscalateConsecutive || 3, total: config.denyEscalateTotal || 20 } })
++            } catch (e) { return send(400, { ok: false, error: String((e && e.message) || e) }) }
++          },
++        })
++        offCountersResetRoute = ctx.webServer.register({
++          kind: 'exact',
++          path: '/api/auto-approve/counters-reset',
++          handler: async (req, res) => {
++            const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-cache' }); res.end(JSON.stringify(obj)) }
++            try {
++              if (req.method !== 'POST') return send(405, { ok: false, error: 'method not allowed' })
++              const body = await readBody(req)
++              const sid = String(body.sessionId || '')
++              if (!sid) return send(400, { ok: false, error: 'sessionId 必填' })
++              rejectCounters.delete(sid)
++              audit(`COUNTERS-RESET ${sid}`)
++              return send(200, { ok: true, sessionId: sid })
++            } catch (e) { return send(400, { ok: false, error: String((e && e.message) || e) }) }
++          },
++        })
++        console.log(`[${NAME}] 规则/初始化 API 已注册：/api/auto-approve/rules, /setup, /remember, /forget, /counters`)
+       } else {
+         console.warn(`[${NAME}] webServer 不可用，规则/初始化 API 未注册`)
+       }
+@@ -941,6 +1535,16 @@
+                 snapHint
+               const result = await sendToSession(sessionId, content)
+               audit(`REVERT  event=${eventId} session=${sessionId} via=${result.via || 'none'} | ${event.justification ? event.justification.slice(0, 80) : ''}`)
++              if (result.ok) {
++                const fp = extractOperationFingerprint(event.justification || event.reason || '')
++                const removed = demoteLearned(event.tool, event.mode, fp, 'revert', event.justification || event.reason || '')
++                const negRule = { tool: event.tool }
++                if (event.mode) negRule.mode = event.mode
++                if (fp) negRule.contains = fp
++                const dup = (config.denyRules || []).some((r) => r.tool === negRule.tool && r.mode === negRule.mode && r.contains === negRule.contains)
++                if (!dup) { config.denyRules.push(negRule); saveJson(ALLOWLIST_PATH, config) }
++                audit(`NEGATIVE revert event=${eventId} removed=${removed} → 撤销操作已降级为永久人工`)
++              }
+               send(res, result.ok ? 200 : 500, result)
+             } catch (e) {
+               send(res, 400, { ok: false, error: String((e && e.message) || e) })
+@@ -1012,6 +1616,10 @@
+       if (offEventsRoute) { try { offEventsRoute() } catch (e) {} }
+       if (offRulesRoute) { try { offRulesRoute() } catch (e) {} }
+       if (offSetupRoute) { try { offSetupRoute() } catch (e) {} }
++      if (offRememberRoute) { try { offRememberRoute() } catch (e) {} }
++      if (offForgetRoute) { try { offForgetRoute() } catch (e) {} }
++      if (offCountersRoute) { try { offCountersRoute() } catch (e) {} }
++      if (offCountersResetRoute) { try { offCountersResetRoute() } catch (e) {} }
+       if (offDiffRoute) { try { offDiffRoute() } catch (e) {} }
+       if (offRevertRoute) { try { offRevertRoute() } catch (e) {} }
+       if (offSnapStatsRoute) { try { offSnapStatsRoute() } catch (e) {} }
+@@ -1037,40 +1645,83 @@
+      * 由 judgeOnce / verifySimilarity 共用；异常向上抛，由 withRetry 决定重试或降级。
+      * @returns {Promise<string>} 模型原始输出文本
+      */
+-    const callFlash = async (userText, systemPrompt, signal) => {
+-      const { provider, model } = resolveModel()
+-      let text = ''
+-      for await (const chunk of llm.stream({
+-        provider,
+-        model,
+-        messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }],
+-        system: systemPrompt,
+-        temperature: 0,
+-        reasoningEffort: 'off',
+-        // 256：结论仅几个词，但模型偶发先输出复述/思考文本，64 会被截断导致解析失败
+-        maxTokens: 256,
+-        signal
+-      })) {
+-        if (chunk.type === 'text-delta') text += chunk.text
+-        else if (chunk.type === 'reasoning-delta') text += chunk.text
+-        else if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
+-          const failure = chunk.reason.failure && chunk.reason.failure.message ? chunk.reason.failure.message : chunk.reason.kind
+-          throw new Error('flash 调用失败: ' + failure)
++    const callFlash = async (userText, systemPrompt, signal, maxTokens, modelOverride) => {
++      const base = resolveModel()
++      const provider = modelOverride && modelOverride.provider ? modelOverride.provider : base.provider
++      const model = modelOverride && modelOverride.model ? modelOverride.model : base.model
++      // 中转/自定义 provider 的能力表常不声明 reasoning effort "off"，dsh llm 在发出请求前
++      // 即抛 UNSUPPORTED_REASONING_EFFORT。先按 off 尝试；被拒则去掉该参数重试一次（回退
++      // 尝试忽略 reasoning-delta，避免思考文本污染 SAFE/RISKY 判定文本）。
++      const attempts = [
++        { reasoningEffort: 'off', collectReasoning: true },
++        { reasoningEffort: undefined, collectReasoning: false }
++      ]
++      let lastError = null
++      for (const attempt of attempts) {
++        let text = ''
++        try {
++          for await (const chunk of llm.stream({
++            provider,
++            model,
++            messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }],
++            system: systemPrompt,
++            temperature: 0,
++            ...(attempt.reasoningEffort === undefined ? {} : { reasoningEffort: attempt.reasoningEffort }),
++            // 256：结论仅几个词，但模型偶发先输出复述/思考文本，64 会被截断导致解析失败
++            maxTokens: maxTokens || 256,
++            signal
++          })) {
++            if (chunk.type === 'text-delta') text += chunk.text
++            else if (chunk.type === 'reasoning-delta' && attempt.collectReasoning) text += chunk.text
++            else if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
++              const failure = chunk.reason.failure && chunk.reason.failure.message ? chunk.reason.failure.message : chunk.reason.kind
++              throw new Error('flash 调用失败: ' + failure)
++            }
++          }
++          return text
++        } catch (error) {
++          lastError = error
++          const failureText = String((error && error.message) || error)
++          // 仅对「不支持 reasoning effort」降级到默认 effort 重试；其余错误原样抛出（fail-safe）
++          if (!failureText.includes('does not support reasoning effort')) throw error
+         }
+       }
+-      return text
++      throw lastError
+     }
+ 
+     /**
+      * 单次 flash 判定：输出 SAFE 或 RISKY:<category>。
+      * @returns {Promise<{verdict:'safe'|'risky', category?:string}>}
+      */
+-    const judgeOnce = async (toolName, mode, justification, signal) => {
++    const STAGE1_PROMPT = [
++      '你是操作风险快筛器。只输出一个词：ALLOW 或 REVIEW。',
++      '判断依据是「工具调用参数」里的实际动作，而不是请求的沙箱模式。',
++      'ALLOW：明确只读或可回补的常规操作，例如 cat/ls/head/grep、读取文件、在测试/临时目录写入、常规编辑。',
++      'REVIEW：删除/覆盖、凭据/密钥、远程或生产、系统路径、批量、参数缺失、任何拿不准的情况。',
++      '拿不准时输出 REVIEW；不要解释，只输出一个词。'
++    ].join('\n')
++    const stage1Once = async (toolName, mode, justification, signal, toolArgs) => {
+       const user = [
+         `工具: ${toolName}`,
+         `目标沙箱模式: ${mode || '(非越界审批)'}`,
++        toolArgs ? `工具调用参数:\n${toolArgs}` : '',
+         `操作理由: ${justification || '(无说明)'}`,
+         '',
++        '输出 ALLOW 或 REVIEW。'
++      ].filter(function (x) { return x !== '' }).join('\n')
++      const override = (config.stage1Provider && config.stage1Model) ? { provider: config.stage1Provider, model: config.stage1Model } : null
++      const text = (await callFlash(user, STAGE1_PROMPT, signal, 8, override)).trim().toUpperCase()
++      if (text.indexOf('REVIEW') >= 0) return { verdict: 'review' }
++      if (text.indexOf('ALLOW') >= 0) return { verdict: 'allow' }
++      return { verdict: 'review', unparsed: true }
++    }
++    const judgeOnce = async (toolName, mode, justification, signal, toolArgs) => {
++      const user = [
++        `工具: ${toolName}`,
++        `目标沙箱模式: ${mode || '(非越界审批)'}`,
++        toolArgs ? `工具调用参数:\n${toolArgs}` : '',
++        `操作理由: ${justification || '(无说明)'}`,
++        '',
+         '请判断：执行该操作是否会造成无法回补的后果或触碰敏感资源？输出 SAFE 或 RISKY:<类别>。'
+       ].join('\n')
+       const text = await callFlash(user, SYSTEM_PROMPT, signal)
+@@ -1178,10 +1829,15 @@
+     }
+ 
+     /** flash 风险判定（带超时重试）：失败 → { verdict:'risky', category:'neutral', failed:true }（fail-safe） */
+-    const judgeWithFlash = async (toolName, mode, justification) => {
+-      const result = await withRetry((signal) => judgeOnce(toolName, mode, justification, signal), 'flash 判断')
+-      if (result.failed) return { verdict: 'risky', category: 'neutral', timedOut: true, failed: true }
+-      return result
++    const judgeWithFlash = async (toolName, mode, justification, toolArgs) => {
++      if (config.twoStage === true) {
++        const fast = await withRetry((signal) => stage1Once(toolName, mode, justification, signal, toolArgs), 'fast 快筛')
++        if (!fast.failed && fast.verdict === 'allow') return { verdict: 'safe', stage: 'fast' }
++        audit(`STAGE1  review${fast.failed ? '（快筛失败，转复评）' : ''}`)
++      }
++      const result = await withRetry((signal) => judgeOnce(toolName, mode, justification, signal, toolArgs), 'flash 判断')
++      if (result.failed) return { verdict: 'risky', category: 'neutral', timedOut: true, failed: true, stage: 'deep' }
++      return Object.assign({ stage: 'deep' }, result)
+     }
+ 
+     /** 同类验证（带超时重试）：失败 → { verdict:'different', failed:true }（fail-safe：验证失败按不同类处理） */
+@@ -1210,7 +1866,7 @@
+         if (!session) return next()
+         let preset
+         try {
+-          preset = permissionPresets.current(session.events)
++          preset = permissionPresets.current(session)
+         } catch (error) {
+           console.error(`[${NAME}] permissionPresets.current failed`, error)
+           return next()
+@@ -1222,17 +1878,21 @@
+         const reason = String(req.reason || '')
+         const { mode, justification } = parseReason(reason)
+         const sessionId = typeof session.id === 'string' ? session.id : ''
++        const callInfo = req && req.callId ? getToolCall(sessionId, String(req.callId)) : null
++        const judgeArgs = callInfo && callInfo.arguments ? redactArgs(callInfo.arguments) : ''
++        if (judgeArgs) audit(`INPUT   ${toolName} callArgs=${judgeArgs.length}B`)
+         // 会话工作目录：相对路径快照解析的基准（DSH SessionHeader.cwd）
+         const sessionCwd = (typeof session.cwd === 'string' && session.cwd) ? session.cwd : ''
+ 
+         // 转人工统一处理：记录 pending → 交下游（web answerer）→ 记录终态事件（关闭提示条）
+         const forwardToHuman = async (sid, tName, tMode, rsn, jst, cat, why) => {
+-          recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-pending', { kind: 'manual-pending', category: cat || '', path: why })
++          recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-pending', { kind: 'manual-pending', category: cat || '', path: why, args: judgeArgs })
+           const out = await next()
++          recordOutcome(sid, tName, tMode, rsn, jst, cat, out)
+           if (out === 'allowed-once') {
+-            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-approved', { kind: 'manual-approved', category: cat || '', path: why })
++            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-approved', { kind: 'manual-approved', category: cat || '', path: why, args: judgeArgs })
+           } else if (out === 'rejected') {
+-            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-rejected', { kind: 'manual-rejected', category: cat || '', path: why })
++            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-rejected', { kind: 'manual-rejected', category: cat || '', path: why, args: judgeArgs })
+           }
+           return out
+         }
+@@ -1243,20 +1903,39 @@
+           return forwardToHuman(sessionId, toolName, mode, reason, justification, '', 'deny')
+         }
+ 
++        // 2a. 可写根目录信任：一次性配置，范围内的操作直接放行（零点击）
++        const trustedRoot = trustHit(justification)
++        if (trustedRoot) {
++          audit(`TRUST   ${toolName} mode=${mode || 'none'} root=${trustedRoot}`)
++          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'trust', { baseDir: sessionCwd, args: judgeArgs })
++          return 'allowed-once'
++        }
++
++        // 2b. 会话内记忆：本会话人工确认过的同指纹操作 → 直接放行（零点击，会话级）
++        const earlyFp = extractOperationFingerprint(justification)
++        const memEntry = sessionMemoryHit(sessionId, toolName, mode, earlyFp)
++        if (memEntry) {
++          audit(`SESSIONMEM ${toolName} mode=${mode || 'none'} fp=${earlyFp}`)
++          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'session-memory', { baseDir: sessionCwd, args: judgeArgs })
++          return 'allowed-once'
++        }
++
+         // 2. 白名单层：命中规则 → 直接放行（确定性，不过 flash）
+         const matchedRule = matchRule(config.allowRules, toolName, mode, null, justification)
+         if (matchedRule) {
+-          audit(`ALLOW   ${toolName} mode=${mode || 'none'} (rule: ${matchedRule.description || 'matched'})`)
+-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'rule', { baseDir: sessionCwd })
++          touchRuleHit(matchedRule)
++          audit(`ALLOW   ${toolName} mode=${mode || 'none'} (rule: ${matchedRule.description || 'matched'}${matchedRule.contains ? ',contains=' + matchedRule.contains : ''},hit=${matchedRule.hitCount || 0})`)
++          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'rule', { baseDir: sessionCwd, args: judgeArgs })
+           return 'allowed-once'
+         }
+ 
+         // 3. flash 判定
+-        const { verdict, category, timedOut, failed } = await judgeWithFlash(toolName, mode, justification)
++        const { verdict, category, timedOut, failed, stage } = await judgeWithFlash(toolName, mode, justification, judgeArgs)
+ 
+         if (verdict === 'safe') {
+-          audit(`ALLOW   ${toolName} mode=${mode || 'none'} (flash-safe${timedOut ? '，重试后' : ''})`)
+-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-safe', { baseDir: sessionCwd })
++          audit(`ALLOW   ${toolName} mode=${mode || 'none'} (flash-safe${timedOut ? '，重试后' : ''}${stage === 'fast' ? ',fast' : ''})`)
++          const ev = recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-safe', { baseDir: sessionCwd, args: judgeArgs })
++          recordSelfObservation(sessionId, toolName, mode, justification, ev && ev.id)
+           return 'allowed-once'
+         }
+ 
+@@ -1291,10 +1970,11 @@
+         const key = learnKey(toolName, mode, cat)
+         const learnedRule = matchRule(config.allowRules, toolName, mode, cat, justification)
+         if (learnedRule) {
+-          audit(`ALLOW   ${toolName} mode=${mode || 'none'} (rule: ${learnedRule.description || '沉淀规则'})`)
++          touchRuleHit(learnedRule)
++          audit(`ALLOW   ${toolName} mode=${mode || 'none'} (rule: ${learnedRule.description || '沉淀规则'}${learnedRule.contains ? ',contains=' + learnedRule.contains : ''},hit=${learnedRule.hitCount || 0})`)
+           delete learning.stats[key]
+           saveJson(LEARNING_PATH, learning)
+-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'learned', { baseDir: sessionCwd })
++          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'learned', { baseDir: sessionCwd, args: judgeArgs })
+           return 'allowed-once'
+         }
+ 
+@@ -1315,6 +1995,9 @@
+               if (mode) rule.mode = mode
+               if (!config.allowRules.some((r) => r.tool === rule.tool && r.mode === rule.mode && r.category === rule.category && r.contains === rule.contains)) {
+                 rule.description = `自动沉淀：${cat === 'neutral' ? '中立' : CATEGORY_LABELS[cat] || cat} 人工确认后自动放行`
++                rule.source = 'learned'
++                rule.createdAt = Date.now()
++                rule.hitCount = 0
+                 config.allowRules.push(rule)
+                 saveJson(ALLOWLIST_PATH, config)
+                 audit(`LEARN   ${key} 已沉淀白名单 ${JSON.stringify(rule)}`)
+@@ -1324,7 +2007,7 @@
+             delete learning.stats[key]
+             delete learning.history[key]
+             saveJson(LEARNING_PATH, learning)
+-            recordAutoAllow(sessionId, toolName, mode, reason, justification, 'fpHit', { baseDir: sessionCwd })
++            recordAutoAllow(sessionId, toolName, mode, reason, justification, 'fpHit', { baseDir: sessionCwd, args: judgeArgs })
+             return 'allowed-once'
+           }
+ 
+@@ -1339,6 +2022,9 @@
+                 if (mode) rule.mode = mode
+                 if (!config.allowRules.some((r) => r.tool === rule.tool && r.mode === rule.mode && r.category === rule.category && r.contains === rule.contains)) {
+                   rule.description = `自动沉淀：${cat === 'neutral' ? '中立' : CATEGORY_LABELS[cat] || cat} flash 同类验证`
++                  rule.source = 'learned'
++                  rule.createdAt = Date.now()
++                  rule.hitCount = 0
+                   config.allowRules.push(rule)
+                   saveJson(ALLOWLIST_PATH, config)
+                   audit(`LEARN   ${key} flash 判同类，已沉淀白名单 ${JSON.stringify(rule)}`)
+@@ -1351,7 +2037,7 @@
+                 audit(`SAME    ${toolName} mode=${mode || 'none'} category=${cat} flash 判同类（无指纹，未沉淀）| ${reason.slice(0, 100)}`)
+               }
+               audit(`ALLOW   ${toolName} mode=${mode || 'none'} (flash-same) | ${reason.slice(0, 100)}`)
+-              recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-same', { baseDir: sessionCwd })
++              recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-same', { baseDir: sessionCwd, args: judgeArgs })
+               return 'allowed-once'
+             }
+             // 判 DIFFERENT / 验证失败 → 落人工确认
+@@ -1360,14 +2046,15 @@
+ 
+           // 指纹未命中（且无样本可验证 / 判不同类）：转人工确认
+           audit(`RISKY   ${toolName} mode=${mode || 'none'} category=${cat} confirm=${confirmed + 1}/${threshold}（操作未确认过）→ 人工 outcome=? | ${reason.slice(0, 120)}`)
+-          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm' })
++          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs })
+           const outcome = await next()
++          recordOutcome(sessionId, toolName, mode, reason, justification, cat, outcome)
+           audit(`OUTCOME ${key} outcome=${outcome} | ${reason.slice(0, 80)}`)
+           if (outcome === 'allowed-once' && learning.enabled) {
+             // 批准 → 记录本次操作样本（背景+指纹）；计数保持阈值位
+             recordSample(key, justification)
+             saveJson(LEARNING_PATH, learning)
+-            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed, threshold, category: cat, path: 'neutral-confirm' })
++            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs })
+           } else if (outcome === 'rejected') {
+             // 拒绝 → 永久人工（带指纹；提取不到则拦全部同类，拒绝从严）
+             const rule = { tool: toolName, category: cat }
+@@ -1381,15 +2068,24 @@
+             delete learning.stats[key]
+             delete learning.history[key]
+             saveJson(LEARNING_PATH, learning)
+-            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject' })
++            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs })
+           }
++          const fpMemoryA = fingerprint || extractOperationFingerprint(justification)
++          if (outcome === 'allowed-once') {
++            const promoA = rememberApproved(sessionId, toolName, mode, fpMemoryA, cat, justification)
++            if (promoA && promoA.promoted) audit(`PROMOTE ${memoryKey(toolName, mode, fpMemoryA)} 跨会话 ${promoA.sessions} 次确认`)
++            recordSignatureApproval(sessionId, toolName, mode, justification)
++          } else if (outcome === 'rejected') {
++            demoteLearned(toolName, mode, fpMemoryA, 'reject', justification)
++          }
+           return outcome
+         }
+ 
+         // 前 N 次 → 人工确认
+         audit(`RISKY   ${toolName} mode=${mode || 'none'} category=${cat} confirm=${confirmed + 1}/${threshold} → 人工 outcome=? | ${reason.slice(0, 120)}`)
+-        recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm' })
++        recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs })
+         const outcome = await next()
++        recordOutcome(sessionId, toolName, mode, reason, justification, cat, outcome)
+         audit(`OUTCOME ${key} outcome=${outcome} | ${reason.slice(0, 80)}`)
+ 
+         if (outcome === 'allowed-once' && learning.enabled) {
+@@ -1397,7 +2093,7 @@
+           learning.stats[key] = confirmed + 1
+           recordSample(key, justification)
+           saveJson(LEARNING_PATH, learning)
+-          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed + 1, threshold, category: cat, path: 'neutral-confirm' })
++          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed + 1, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs })
+         } else if (outcome === 'rejected') {
+           // 拒绝 → 升级为永久人工规则（带操作指纹；提取不到则拦全部同类，拒绝从严）
+           const fingerprint = extractOperationFingerprint(justification)
+@@ -1412,8 +2108,16 @@
+           delete learning.stats[key]
+           delete learning.history[key]
+           saveJson(LEARNING_PATH, learning)
+-          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject' })
++          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs })
+         }
++        const fpMemoryB = extractOperationFingerprint(justification)
++        if (outcome === 'allowed-once') {
++          const promoB = rememberApproved(sessionId, toolName, mode, fpMemoryB, cat, justification)
++          if (promoB && promoB.promoted) audit(`PROMOTE ${memoryKey(toolName, mode, fpMemoryB)} 跨会话 ${promoB.sessions} 次确认`)
++          recordSignatureApproval(sessionId, toolName, mode, justification)
++        } else if (outcome === 'rejected') {
++          demoteLearned(toolName, mode, fpMemoryB, 'reject', justification)
++        }
+         // cancelled/unavailable：不计数（用户未表态，下次仍人工确认）
+         return outcome
+       } catch (error) {
+@@ -1422,6 +2126,12 @@
+       }
+     }, { prepend: true })
+ 
++    try {
++      const w = scanOverbroadRules()
++      const n = (w.allowRules || []).length + (w.trustRoots || []).length
++      if (n > 0) audit(`SCAN ${n} 条可能过宽的规则/信任目录（见设置页 ⑦ 规则库）`)
++    } catch (error) { /* 扫描失败不影响挂载 */ }
++
+     console.log(`[${NAME}] v3 已挂载：DENY→白名单→denyRules→flash(SAFE/硬类别/中立计数${config.riskyThreshold})→裁决学习（配置: ${ALLOWLIST_PATH}）`)
+   },
+ }
+--- a/client.js
++++ b/client.js
+@@ -58,6 +58,7 @@
+ .ag-row-tool{flex:none;color:var(--dsw-alias-label-primary);font:500 12px/18px var(--ds-font-family-code)}
+ .ag-row-reason{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;word-break:break-all;white-space:pre-wrap}
+ .ag-row-files{display:flex;flex-wrap:wrap;gap:4px}
++.ag-row-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+ .ag-file-chip{box-sizing:border-box;max-width:260px;height:20px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:5px;align-items:center;padding:0 7px;font:11px/18px var(--ds-font-family-code);display:inline-flex;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+ .ag-empty{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
+ .ag-loading{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
+@@ -133,6 +134,49 @@
+ .ag-snap-bar{flex:none;display:flex;align-items:center;gap:8px;padding:6px 14px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;flex-wrap:wrap}
+ .ag-snap-bar b{color:var(--dsw-alias-label-secondary);font-weight:500}
+ .ag-snap-bar-spacer{flex:1 1 auto}
++.ag-set-card{padding:14px 16px;gap:14px}
++.ag-set-card-title{font-size:15px}
++.ag-set-group{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
++.ag-field{display:flex;flex-direction:column;gap:6px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:10px 12px;background:var(--dsw-alias-bg-layer-1);min-width:0}
++.ag-field-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);font-weight:500}
++.ag-field-control{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
++.ag-field-hint{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
++.ag-set-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
++.ag-set-seg{display:inline-flex;gap:2px;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-module-platform)}
++.ag-set-seg-btn{border:none;background:transparent;height:28px;padding:0 10px;border-radius:8px;font:inherit;font-size:12px;line-height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}
++.ag-set-seg-btn:hover{color:var(--dsw-alias-label-primary)}
++.ag-set-seg-active{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv1)}
++.ag-rule-item{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
++.ag-rule-main{display:flex;align-items:center;gap:8px;min-width:0}
++.ag-rule-label{flex:1 1 auto;min-width:0;font:12px/18px var(--ds-font-family-code);color:var(--dsw-alias-label-primary);word-break:break-all}
++.ag-rule-actions{flex:none;display:flex;align-items:center;gap:6px;margin-left:auto}
++.ag-rule-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);word-break:break-all}
++.ag-rule-sub{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
++.ag-alert{border:1px solid var(--dsw-alias-state-warn-primary);background:var(--dsw-alias-state-warn-tertiary);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
++.ag-alert-title{font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label);font-weight:500}
++.ag-alert-row{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}
++.ag-alert-text{flex:1 1 240px;min-width:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);word-break:break-all}
++.ag-btn-xs{height:24px;padding:0 10px;border-radius:12px;font-size:12px;line-height:22px}
++.ag-icon-btn{width:24px;height:24px;border-radius:6px;padding:0;font-size:12px}
++.ag-args{font:11px/17px var(--ds-font-family-code);color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-module-platform);border-radius:6px;padding:4px 8px;word-break:break-all;max-height:72px;overflow:hidden}
++.ag-snap-bar{padding:8px 14px;background:color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, var(--dsw-alias-bg-module-platform))}
++.ag-dash{flex:none;display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
++.ag-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
++.ag-stat{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);padding:8px 10px;display:flex;flex-direction:column;gap:2px;min-width:0}
++.ag-stat-label{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
++.ag-stat-value{font-size:20px;line-height:26px;font-weight:600;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}
++.ag-stat-sub{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
++.ag-dist{display:flex;flex-direction:column;gap:4px}
++.ag-dist-bar{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--dsw-alias-bg-module-platform)}
++.ag-dist-seg{height:100%}
++.ag-dist-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
++.ag-toolbar2{flex:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
++.ag-chip{border:1px solid var(--dsw-alias-border-l2);background:transparent;border-radius:999px;height:26px;padding:0 10px;font:inherit;font-size:12px;line-height:24px;color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}
++.ag-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}
++.ag-chip-active{background:var(--dsw-alias-state-business-tertiary);border-color:transparent;color:var(--dsw-alias-state-business-primary)}
++.ag-search{width:200px}
++.ag-group{display:flex;flex-direction:column;gap:2px}
++.ag-group-label{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption);padding:8px 10px 2px;position:sticky;top:0;background:var(--dsw-alias-bg-layer-1);z-index:1}
+ `
+ 
+     const VERDICT_LABELS = {
+@@ -274,6 +318,10 @@
+         title = '已拒绝：' + (notice.justification || notice.reason || '')
+         tagText = rejectLabel(notice).replace('人工拒绝', '已拒绝')
+         glyph = React.createElement('span', { className: 'ag-notice-glyph-err' }, '✕')
++      } else if (kind === 'escalate') {
++        title = '需人工介入：连续拒绝 ' + (notice.consecutive || '?') + ' 次 / 累计 ' + (notice.total || '?') + ' 次'
++        tagText = '需人工介入'
++        glyph = React.createElement('span', { className: 'ag-notice-glyph-err' }, '⚠')
+       } else {
+         title = (notice.justification || notice.reason || '')
+         const label = VERDICT_LABELS[notice.verdict] || notice.verdict || '自动放行'
+@@ -290,7 +338,7 @@
+               React.createElement('span', { className: 'ag-notice-text' }, title),
+             ),
+             React.createElement('div', { className: 'ag-notice-meta' },
+-              React.createElement('span', { className: isPending ? 'ag-tag-warn' : kind === 'manual-rejected' ? 'ag-tag-err' : kind === 'manual-approved' ? 'ag-tag-warn' : 'ag-tag' + (VERDICT_NEUTRAL.has(notice.verdict) ? ' ag-tag-neutral' : '') }, tagText),
++              React.createElement('span', { className: isPending ? 'ag-tag-warn' : (kind === 'manual-rejected' || kind === 'escalate') ? 'ag-tag-err' : kind === 'manual-approved' ? 'ag-tag-warn' : 'ag-tag' + (VERDICT_NEUTRAL.has(notice.verdict) ? ' ag-tag-neutral' : '') }, tagText),
+               React.createElement('span', { className: 'ag-time' }, fmtTime(notice.ts)),
+             ),
+           ),
+@@ -439,9 +487,15 @@
+       const sessionId = (props && (props.sessionId || (props.slotsProps && props.slotsProps.sessionId))) || null
+       const [events, setEvents] = React.useState(null)
+       const [error, setError] = React.useState(null)
+-      const [snapStats, setSnapStats] = React.useState(null) // {count, bytes} | null
++      const [snapStats, setSnapStats] = React.useState(null) // {count, bytes} | null（当前会话）
++      const [globalSnapStats, setGlobalSnapStats] = React.useState(null) // {count, bytes} | null（全部会话）
++      const [counters, setCounters] = React.useState(null) // {consecutive, total, limits} | null
++      const [kindFilter, setKindFilter] = React.useState('all')
++      const [query, setQuery] = React.useState('')
++      const [rulesSnap, setRulesSnap] = React.useState(null)
+       const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
+       const [diffOpen, setDiffOpen] = React.useState(null) // {eventId, path} | null
++      const [remembered, setRemembered] = React.useState({}) // eventId -> 'remembered' | 'forgotten' | 'busy' | 'error:…'
+ 
+       const loadSnapStats = function (sid) {
+         const q = sid ? ('?sessionId=' + encodeURIComponent(sid)) : ''
+@@ -453,9 +507,31 @@
+             setSnapIds(new Set((res.ids || []).map(String)))
+           })
+           .catch(function () {})
++        fetch('/api/auto-approve/snapshots-stats', { headers: { 'cache-control': 'no-cache' } })
++          .then(function (r) { return r.json() })
++          .then(function (res) {
++            if (!res || !res.ok) return
++            setGlobalSnapStats({ count: res.count || 0, bytes: res.bytes || 0 })
++          })
++          .catch(function () {})
+       }
+ 
+       // 清除快照：mode='session' 仅本会话（默认），mode='all' 清全部（含其他会话，需二次确认）
++      const loadRules = function () {
++        fetch('/api/auto-approve/rules', { headers: { 'cache-control': 'no-cache' } })
++          .then(function (r) { return r.json() })
++          .then(function (res) { if (res && res.config) setRulesSnap(res) })
++          .catch(function () {})
++      }
++
++      const loadCounters = function (sid) {
++        if (!sid) return
++        fetch('/api/auto-approve/counters?sessionId=' + encodeURIComponent(sid), { headers: { 'cache-control': 'no-cache' } })
++          .then(function (r) { return r.json() })
++          .then(function (res) { if (res && res.ok) setCounters({ consecutive: res.consecutive, total: res.total, limits: res.limits }) })
++          .catch(function () {})
++      }
++
+       const doClearSnapshots = function (mode) {
+         const sid = mode === 'session' ? sessionId : ''
+         const msg = mode === 'all'
+@@ -470,16 +546,46 @@
+           body: JSON.stringify(body),
+         }).then(function (r) { return r.json() }).then(function (res) {
+           if (res && res.ok) {
+-            if (mode === 'all') { setSnapStats({ count: 0, bytes: 0 }); setSnapIds(new Set()) }
++            if (mode === 'all') { setSnapStats({ count: 0, bytes: 0 }); setGlobalSnapStats({ count: 0, bytes: 0 }); setSnapIds(new Set()) }
+             else loadSnapStats(sessionId)
+           }
+         }).catch(function () {})
+       }
+ 
++      const setOverride = function (id, value) {
++        setRemembered(function (m) { const n = Object.assign({}, m); if (value === undefined) delete n[id]; else n[id] = value; return n })
++      }
++      const doRemember = function (ev) {
++        if (remembered[ev.id] === 'busy') return
++        setOverride(ev.id, 'busy')
++        fetch('/api/auto-approve/remember', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({ eventId: ev.id, tool: ev.tool, mode: ev.mode, justification: ev.justification || ev.reason || '' }),
++        }).then(function (r) { return r.json() }).then(function (res) {
++          if (res && res.ok) setOverride(ev.id, 'remembered')
++          else setOverride(ev.id, 'error:' + ((res && res.error) || '未知错误'))
++        }).catch(function (e) { setOverride(ev.id, 'error:' + String((e && e.message) || e)) })
++      }
++      const doForget = function (ev) {
++        if (remembered[ev.id] === 'busy') return
++        setOverride(ev.id, 'busy')
++        fetch('/api/auto-approve/forget', {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({ eventId: ev.id, tool: ev.tool, mode: ev.mode, justification: ev.justification || ev.reason || '' }),
++        }).then(function (r) { return r.json() }).then(function (res) {
++          if (res && res.ok) setOverride(ev.id, 'forgotten')
++          else setOverride(ev.id, 'error:' + ((res && res.error) || '未知错误'))
++        }).catch(function (e) { setOverride(ev.id, 'error:' + String((e && e.message) || e)) })
++      }
++
+       React.useEffect(function () {
+         setEvents(null)
+         setError(null)
+         loadSnapStats(sessionId)
++        loadCounters(sessionId)
++        loadRules()
+         if (!sessionId) { setEvents([]); return }
+         let alive = true
+         const load = function () {
+@@ -493,102 +599,234 @@
+             setError(String((e && e.message) || e))
+           })
+           loadSnapStats(sessionId)
++          loadCounters(sessionId)
++          loadRules()
+         }
+         load()
+         const timer = setInterval(load, 5000)
+         return function () { alive = false; clearInterval(timer) }
+       }, [sessionId])
+ 
++      const kindKey = function (ev) {
++        const k = ev.kind || 'auto'
++        if (k === 'manual-approved') return 'approved'
++        if (k === 'manual-rejected') return 'rejected'
++        if (k === 'escalate') return 'escalate'
++        return 'auto'
++      }
++      const rows = (events || []).filter(function (ev) { return (ev.kind || 'auto') !== 'manual-pending' })
++      const counts = { auto: 0, approved: 0, rejected: 0, escalate: 0 }
++      rows.forEach(function (ev) { counts[kindKey(ev)] = (counts[kindKey(ev)] || 0) + 1 })
++      const total = rows.length
++      const pct = function (n) { return total ? Math.round(n * 100 / total) : 0 }
++      const rulesCfg = (rulesSnap && rulesSnap.config) || {}
++      const allowRules = rulesCfg.allowRules || []
++      const trustRoots = rulesCfg.trustRoots || []
++      const ruleStats = {
++        total: allowRules.length,
++        self: allowRules.filter(function (r) { return r && r.source === 'self-learned' }).length,
++        graduated: allowRules.filter(function (r) { return r && r.graduation }).length,
++        trust: trustRoots.length,
++      }
++      const q = String(query || '').trim().toLowerCase()
++      const filtered = rows.filter(function (ev) {
++        if (kindFilter !== 'all' && kindKey(ev) !== kindFilter) return false
++        if (q === '') return true
++        return [ev.tool, ev.justification, ev.reason, ev.args, ev.verdict].join(' ').toLowerCase().indexOf(q) >= 0
++      })
++      const groups = []
++      const groupMap = {}
++      filtered.forEach(function (ev) {
++        const day = String(ev.ts || '').slice(0, 10) || '未知日期'
++        if (!groupMap[day]) { groupMap[day] = { day: day, items: [] }; groups.push(groupMap[day]) }
++        groupMap[day].items.push(ev)
++      })
++      const chips = [
++        ['all', '全部', total],
++        ['auto', '自动放行', counts.auto],
++        ['approved', '人工通过', counts.approved],
++        ['rejected', '已拒绝', counts.rejected],
++        ['escalate', '需人工介入', counts.escalate],
++      ]
++      const stat = function (label, value, sub) {
++        return React.createElement('div', { className: 'ag-stat', key: label },
++          React.createElement('span', { className: 'ag-stat-label' }, label),
++          React.createElement('span', { className: 'ag-stat-value' }, String(value)),
++          React.createElement('span', { className: 'ag-stat-sub' }, sub || ''),
++        )
++      }
++      const distSeg = function (n, color) {
++        const p = pct(n)
++        if (p <= 0) return null
++        return React.createElement('span', { key: color, className: 'ag-dist-seg', style: { width: p + '%', background: color } })
++      }
++      const renderRow = function (ev) {
++        const kind = ev.kind || 'auto'
++        const files = Array.isArray(ev.files) ? ev.files : []
++        const hasSnap = snapIds !== null && snapIds.has(String(ev.id))
++        let tagText = ''
++        let tagCls = 'ag-tag'
++        let glyph = React.createElement(GlyphCheck, null)
++        let glyphCls = 'ag-row-glyph'
++        if (kind === 'manual-approved') {
++          const lc = ev.learningCount !== undefined ? ev.learningCount : null
++          const th = ev.threshold || 3
++          tagText = lc !== null ? ('人工通过 · 学习 ' + lc + '/' + th) : '人工通过'
++          tagCls = 'ag-tag-warn'
++          glyphCls = 'ag-row-glyph-warn'
++          glyph = React.createElement('span', null, '✓')
++        } else if (kind === 'manual-rejected') {
++          tagText = rejectLabel(ev)
++          tagCls = 'ag-tag-err'
++          glyphCls = 'ag-row-glyph-err'
++          glyph = React.createElement('span', null, '✕')
++        } else if (kind === 'escalate') {
++          tagText = '需人工介入 · 连续拒绝 ' + (ev.consecutive || '?') + ' 次 / 累计 ' + (ev.total || '?') + ' 次'
++          tagCls = 'ag-tag-err'
++          glyphCls = 'ag-row-glyph-err'
++          glyph = React.createElement('span', null, '⚠')
++        } else {
++          tagText = '自动放行 · ' + (VERDICT_LABELS[ev.verdict] || ev.verdict || 'auto')
++          tagCls = 'ag-tag' + (VERDICT_NEUTRAL.has(ev.verdict) ? ' ag-tag-neutral' : '')
++        }
++        const ov = remembered[ev.id]
++        const busy = ov === 'busy'
++        const errored = typeof ov === 'string' && ov.indexOf('error:') === 0
++        const isRemembered = ov === 'remembered' ? true : (ov === 'forgotten' ? false : ev.remembered === true)
++        return React.createElement('div', { className: 'ag-row', key: ev.id + '@' + (ev.ts || '') },
++          React.createElement('div', { className: 'ag-row-rail' },
++            React.createElement('span', { className: glyphCls }, glyph),
++            React.createElement('span', { className: 'ag-row-line' }),
++          ),
++          React.createElement('div', { className: 'ag-row-body' },
++            React.createElement('div', { className: 'ag-row-top' },
++              React.createElement('span', { className: 'ag-row-tool' }, ev.tool || 'tool'),
++              React.createElement('span', { className: tagCls }, tagText),
++              React.createElement('span', { className: 'ag-time' }, fmtTime(ev.ts)),
++            ),
++            React.createElement('div', { className: 'ag-row-reason' }, ev.justification || ev.reason || '(无说明)'),
++            ev.args
++              ? React.createElement('div', { className: 'ag-args', title: ev.args }, '参数：' + String(ev.args).slice(0, 240))
++              : null,
++            React.createElement('div', { className: 'ag-row-actions' },
++              kind !== 'manual-rejected'
++                ? React.createElement('button', {
++                    type: 'button', className: 'ag-set-btn ag-btn-xs',
++                    disabled: busy,
++                    onClick: function () { if (isRemembered) doForget(ev); else doRemember(ev) },
++                    title: isRemembered ? '取消记住：删除该操作的白名单规则' : '把这次操作沉淀为白名单规则',
++                  }, busy ? '处理中…' : (errored ? '重试' : (isRemembered ? '取消记住' : '记住这次操作')))
++                : null,
++            ),
++            files.length > 0
++              ? React.createElement('div', { className: 'ag-row-files' }, files.map(function (f, i) {
++                  const chipProps = { key: i, className: 'ag-file-chip' }
++                  if (hasSnap) {
++                    chipProps.className += ' ag-file-chip-snap'
++                    chipProps.title = '查看该文件改动对比'
++                    chipProps.role = 'button'
++                    chipProps.onClick = function () { setDiffOpen({ eventId: ev.id, path: f }) }
++                  }
++                  return React.createElement('span', chipProps, String(f).split('/').pop())
++                }))
++              : null,
++          ),
++        )
++      }
+       return React.createElement('div', { className: 'ag-view' },
+         React.createElement('div', { className: 'ag-view-head' },
+           React.createElement('div', { className: 'ag-view-title' }, '自动放行审批'),
+-          React.createElement('div', { className: 'ag-view-sub' }, '本会话中自动放行与人工审批的记录（最新在上）'),
++          React.createElement('div', { className: 'ag-view-sub' }, '本会话审批记录、学习规则与快照（最新在上）'),
+         ),
++        React.createElement('div', { className: 'ag-dash' },
++          React.createElement('div', { className: 'ag-stat-grid' },
++            stat('自动放行', counts.auto, pct(counts.auto) + '% · Flash / 规则'),
++            stat('人工通过', counts.approved, pct(counts.approved) + '%'),
++            stat('已拒绝', counts.rejected, pct(counts.rejected) + '%'),
++            stat('需人工介入', counts.escalate, pct(counts.escalate) + '%'),
++          ),
++          React.createElement('div', { className: 'ag-dist' },
++            React.createElement('div', { className: 'ag-dist-bar' },
++              distSeg(counts.auto, 'var(--dsw-alias-state-success-primary)'),
++              distSeg(counts.approved, 'var(--dsw-alias-state-warn-primary)'),
++              distSeg(counts.rejected, 'var(--dsw-alias-state-error-primary)'),
++              distSeg(counts.escalate, 'var(--dsw-alias-state-error-label)'),
++            ),
++            React.createElement('div', { className: 'ag-dist-legend' },
++              React.createElement('span', null, '自动 ' + counts.auto),
++              React.createElement('span', null, '人工 ' + counts.approved),
++              React.createElement('span', null, '拒绝 ' + counts.rejected),
++              React.createElement('span', null, '升级 ' + counts.escalate),
++            ),
++          ),
++          React.createElement('div', { className: 'ag-stat-grid' },
++            stat('规则总数', ruleStats.total, '白名单规则'),
++            stat('自学习规则', ruleStats.self, 'Flash SAFE 毕业'),
++            stat('毕业规则', ruleStats.graduated, '人工确认毕业'),
++            stat('信任目录', ruleStats.trust, '免审批目录'),
++          ),
++        ),
++        React.createElement('div', { className: 'ag-toolbar2' },
++          chips.map(function (c) {
++            return React.createElement('button', {
++              key: c[0], type: 'button',
++              className: 'ag-chip' + (kindFilter === c[0] ? ' ag-chip-active' : ''),
++              onClick: function () { setKindFilter(c[0]) },
++            }, c[1] + ' ' + c[2])
++          }),
++          React.createElement('span', { style: { flex: '1 1 auto' } }),
++          React.createElement('input', {
++            className: 'ag-set-input ag-search', placeholder: '搜索工具 / 理由 / 参数',
++            value: query, onChange: function (e) { setQuery(e.target.value) },
++          }),
++        ),
+         React.createElement('div', { className: 'ag-snap-bar' },
+           React.createElement('span', null,
+             'diff 快照 ',
+             React.createElement('b', null, snapStats ? (fmtBytes(snapStats.bytes) + ' · ' + snapStats.count + ' 条') : '…'),
++            globalSnapStats && globalSnapStats.count !== (snapStats ? snapStats.count : -1)
++              ? React.createElement('span', { style: { marginLeft: 6, opacity: 0.75 } },
++                  '（全部会话 ' + fmtBytes(globalSnapStats.bytes) + ' · ' + globalSnapStats.count + ' 条）')
++              : null,
+           ),
++          counters
++            ? React.createElement('span', { style: { marginLeft: 8 } },
++                '拒绝计数：连续 ' + counters.consecutive + ' / 累计 ' + counters.total + '（上限 ' + counters.limits.consecutive + ' / ' + counters.limits.total + '）',
++                React.createElement('button', {
++                  type: 'button', className: 'ag-set-btn ag-btn-xs', style: { marginLeft: 6 },
++                  onClick: function () {
++                    fetch('/api/auto-approve/counters-reset', {
++                      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: sessionId }),
++                    }).then(function () { loadCounters(sessionId) }).catch(function () {})
++                  },
++                }, '重置'),
++              )
++            : null,
+           React.createElement('span', { className: 'ag-snap-bar-spacer' }),
+           React.createElement('button', {
+-            type: 'button',
+-            className: 'ag-set-btn',
++            type: 'button', className: 'ag-set-btn ag-btn-xs',
+             onClick: function () { doClearSnapshots('session') },
+             disabled: !snapStats || snapStats.count === 0,
+             title: '仅清除本会话的 diff 快照（不影响其他会话）',
+           }, '仅清本会话'),
+           React.createElement('button', {
+-            type: 'button',
+-            className: 'ag-set-btn ag-set-btn-danger',
++            type: 'button', className: 'ag-set-btn ag-btn-xs',
+             onClick: function () { doClearSnapshots('all') },
+-            disabled: !snapStats || snapStats.count === 0,
++            disabled: !globalSnapStats || globalSnapStats.count === 0,
+             title: '清空全部会话（含其他会话未查看过的）diff 快照，需二次确认',
+           }, '清空全部'),
+         ),
+         events === null
+           ? React.createElement('div', { className: 'ag-loading' }, '加载中…')
+-          : events.length === 0
+-            ? React.createElement('div', { className: 'ag-empty' }, error ? ('加载失败：' + error) : '本会话暂无审批记录')
++          : filtered.length === 0
++            ? React.createElement('div', { className: 'ag-empty' }, error ? ('加载失败：' + error) : (rows.length === 0 ? '本会话暂无审批记录' : '没有匹配的记录'))
+             : React.createElement('div', { className: 'ag-list' },
+-                events.map(function (ev) {
+-                  const kind = ev.kind || 'auto'
+-                  // pending（等待中）不在视图展示终态记录（提示条负责）
+-                  if (kind === 'manual-pending') return null
+-                  const files = Array.isArray(ev.files) ? ev.files : []
+-                  const hasSnap = snapIds !== null && snapIds.has(String(ev.id))
+-                  let tagText = ''
+-                  let tagCls = 'ag-tag'
+-                  let glyph = React.createElement(GlyphCheck, null)
+-                  let glyphCls = 'ag-row-glyph'
+-                  if (kind === 'manual-approved') {
+-                    const lc = ev.learningCount !== undefined ? ev.learningCount : null
+-                    const th = ev.threshold || 3
+-                    tagText = lc !== null ? ('人工通过 · 学习 ' + lc + '/' + th + '（满 ' + th + ' 次自动放行）') : '人工通过'
+-                    tagCls = 'ag-tag-warn'
+-                    glyphCls = 'ag-row-glyph-warn'
+-                    glyph = React.createElement('span', null, '✓')
+-                  } else if (kind === 'manual-rejected') {
+-                    // 按拒绝路径精确分类文案（reason 由 host 记录）
+-                    tagText = rejectLabel(ev)
+-                    tagCls = 'ag-tag-err'
+-                    glyphCls = 'ag-row-glyph-err'
+-                    glyph = React.createElement('span', null, '✕')
+-                  } else {
+-                    tagText = '自动放行 · ' + (VERDICT_LABELS[ev.verdict] || ev.verdict || 'auto')
+-                    tagCls = 'ag-tag' + (VERDICT_NEUTRAL.has(ev.verdict) ? ' ag-tag-neutral' : '')
+-                  }
+-                  return React.createElement('div', { className: 'ag-row', key: ev.id },
+-                    React.createElement('div', { className: 'ag-row-rail' },
+-                      React.createElement('span', { className: glyphCls }, glyph),
+-                      React.createElement('span', { className: 'ag-row-line' }),
+-                    ),
+-                    React.createElement('div', { className: 'ag-row-body' },
+-                      React.createElement('div', { className: 'ag-row-top' },
+-                        React.createElement('span', { className: 'ag-row-tool' }, ev.tool || 'tool'),
+-                        React.createElement('span', { className: tagCls }, tagText),
+-                        React.createElement('span', { className: 'ag-time' }, fmtTime(ev.ts)),
+-                      ),
+-                      React.createElement('div', { className: 'ag-row-reason' }, ev.justification || ev.reason || '(无说明)'),
+-                      files.length > 0
+-                        ? React.createElement('div', { className: 'ag-row-files' },
+-                            files.map(function (f, i) {
+-                              // 该事件存在快照 → 文件可点击查看改动对比
+-                              const chipProps = { key: i, className: 'ag-file-chip' }
+-                              if (hasSnap) {
+-                                chipProps.className += ' ag-file-chip-snap'
+-                                chipProps.title = '查看该文件改动对比'
+-                                chipProps.role = 'button'
+-                                chipProps.onClick = function () { setDiffOpen({ eventId: ev.id, path: f }) }
+-                              }
+-                              // 只显示文件名本身（去重后同一文件只有一个 chip）
+-                              const fname = String(f).split('/').pop()
+-                              return React.createElement('span', chipProps, fname)
+-                            }),
+-                          )
+-                        : null,
+-                    ),
++                groups.map(function (g) {
++                  return React.createElement('div', { className: 'ag-group', key: g.day },
++                    React.createElement('div', { className: 'ag-group-label' }, g.day),
++                    g.items.map(renderRow),
+                   )
+-                }).filter(Boolean),
++                }),
+               ),
+         diffOpen
+           ? React.createElement(DiffPanel, {
+@@ -606,11 +844,14 @@
+       default: React.createElement('span', { className: 'ag-set-tag ag-set-tag-blue' }, '预置'),
+       learned: React.createElement('span', { className: 'ag-set-tag ag-set-tag-green' }, '学习沉淀'),
+       user: React.createElement('span', { className: 'ag-set-tag ag-set-tag-gray' }, '用户'),
++      remember: React.createElement('span', { className: 'ag-set-tag ag-set-tag-blue' }, '记住'),
++      graduated: React.createElement('span', { className: 'ag-set-tag ag-set-tag-green' }, '毕业'),
+     }
+     function ruleSource(rule) {
++      if (rule && rule.source) return rule.source
+       const d = String(rule && rule.description || '')
+-      if (d.indexOf('自动沉淀') === 0 || d.indexOf('人工确认后') >= 0 || d.indexOf('flash 同类') >= 0) return 'learned'
+-      if (d === '用户自定义') return 'user'
++      if (d.indexOf('自动沉淀') === 0 || d.indexOf('人工确认后') >= 0 || d.indexOf('flash 同类') >= 0 || d.indexOf('自动毕业') === 0) return 'learned'
++      if (d === '用户自定义' || d.indexOf('用户记住') === 0) return 'user'
+       return 'default'
+     }
+ 
+@@ -620,9 +861,21 @@
+       const [busy, setBusy] = React.useState(false)
+       const [feedback, setFeedback] = React.useState(null)
+       const [newKeyword, setNewKeyword] = React.useState('')
++      const [ruleFilter, setRuleFilter] = React.useState('all')
++      const [libTab, setLibTab] = React.useState('allow')
++      const [libQuery, setLibQuery] = React.useState('')
+       const [newRule, setNewRule] = React.useState({ tool: '', mode: '', category: '', contains: '' })
+       const [threshold, setThreshold] = React.useState('3')
+       const [timeoutMs, setTimeoutMs] = React.useState('20000')
++      const [newTrustRoot, setNewTrustRoot] = React.useState('')
++      const [newLibTrustRoot, setNewLibTrustRoot] = React.useState('')
++      const [stage1Provider, setStage1Provider] = React.useState('')
++      const [stage1Model, setStage1Model] = React.useState('')
++      const [selfLearnThreshold, setSelfLearnThreshold] = React.useState('5')
++      const [selfLearnSessions, setSelfLearnSessions] = React.useState('2')
++      const [promotionSessions, setPromotionSessions] = React.useState('2')
++      const [graduationThreshold, setGraduationThreshold] = React.useState('3')
++      const [graduationSessions, setGraduationSessions] = React.useState('2')
+ 
+       const load = function () {
+         fetch('/api/auto-approve/rules', { headers: { 'cache-control': 'no-cache' } })
+@@ -632,6 +885,13 @@
+               setSnapshot(data)
+               setThreshold(String(data.config.riskyThreshold))
+               setTimeoutMs(String(data.config.judgeTimeoutMs))
++              if (data.config.promotionSessions) setPromotionSessions(String(data.config.promotionSessions))
++              if (data.config.graduationThreshold) setGraduationThreshold(String(data.config.graduationThreshold))
++              if (data.config.graduationSessions) setGraduationSessions(String(data.config.graduationSessions))
++              setStage1Provider(String(data.config.stage1Provider || ''))
++              setStage1Model(String(data.config.stage1Model || ''))
++              if (data.config.selfLearnThreshold) setSelfLearnThreshold(String(data.config.selfLearnThreshold))
++              if (data.config.selfLearnSessions) setSelfLearnSessions(String(data.config.selfLearnSessions))
+               setError(null)
+             } else {
+               setError('加载规则失败：' + JSON.stringify(data).slice(0, 200))
+@@ -661,6 +921,31 @@
+         }).finally(function () { setBusy(false) })
+       }
+ 
++      const copyText = function (text) {
++        try { navigator.clipboard.writeText(String(text)); showFeedback('已复制：' + text) } catch (e) { showFeedback('复制失败：' + String((e && e.message) || e), false) }
++      }
++      const exportRules = function () {
++        try {
++          const data = {
++            exportedAt: new Date().toISOString(),
++            allowRules: (snapshot && snapshot.config && snapshot.config.allowRules) || [],
++            denyRules: (snapshot && snapshot.config && snapshot.config.denyRules) || [],
++            trustRoots: (snapshot && snapshot.config && snapshot.config.trustRoots) || [],
++            graduation: (snapshot && snapshot.graduation) || [],
++          }
++          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
++          const url = URL.createObjectURL(blob)
++          const a = document.createElement('a')
++          a.href = url
++          a.download = 'dsh-approval-rules-' + new Date().toISOString().slice(0, 10) + '.json'
++          document.body.appendChild(a)
++          a.click()
++          a.remove()
++          setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
++          showFeedback('已导出规则 JSON')
++        } catch (e) { showFeedback('导出失败：' + String((e && e.message) || e), false) }
++      }
++
+       const setupNow = function () {
+         setBusy(true)
+         fetch('/api/auto-approve/setup', { method: 'POST' })
+@@ -693,6 +978,23 @@
+       const learnHistory = snapshot.learning && snapshot.learning.history ? snapshot.learning.history : {}
+       const statKeys = Object.keys(learnStats)
+       const histKeys = Object.keys(learnHistory)
++      const field = function (label, control, hint) {
++        return React.createElement('div', { className: 'ag-field', key: label },
++          React.createElement('span', { className: 'ag-field-label' }, label),
++          React.createElement('div', { className: 'ag-field-control' }, control),
++          hint ? React.createElement('span', { className: 'ag-field-hint' }, hint) : null,
++        )
++      }
++      const ruleItem = function (key, label, desc, tags, actions) {
++        return React.createElement('div', { className: 'ag-rule-item', key: key },
++          React.createElement('div', { className: 'ag-rule-main' },
++            React.createElement('span', { className: 'ag-rule-label' }, label),
++            React.createElement('div', { className: 'ag-rule-actions' }, actions || []),
++          ),
++          desc ? React.createElement('div', { className: 'ag-rule-desc' }, desc) : null,
++          tags && tags.length ? React.createElement('div', { className: 'ag-rule-sub' }, tags) : null,
++        )
++      }
+ 
+       return React.createElement('div', { className: 'ag-set' },
+         React.createElement('h3', { className: 'ag-set-title' }, '自动审批'),
+@@ -791,6 +1093,7 @@
+               },
+             }, '添加'),
+           ),
++          React.createElement('div', { className: 'ag-set-empty', style: { padding: '0 0 2px' } }, '筛选 / 启停 / 导出 / 证据：见下方 ⑦ 规则库。'),
+           (cfg.allowRules || []).length === 0
+             ? React.createElement('div', { className: 'ag-set-empty' }, '无白名单规则')
+             : React.createElement('div', { className: 'ag-set-list' },
+@@ -800,20 +1103,15 @@
+                   if (rule.mode) parts.push('mode=' + rule.mode)
+                   if (rule.category) parts.push('category=' + rule.category)
+                   if (rule.contains) parts.push('contains=' + rule.contains)
+-                  const label = parts.join('  ') || '(任意)'
++                  if (rule.signature) parts.push('sig=' + String(rule.signature).split('|').slice(2).join('|'))
+                   const src = ruleSource(rule)
+-                  const isPre = preAllow.indexOf(JSON.stringify({ mode: rule.mode, description: rule.description })) >= 0 || (rule.mode === 'workspace-write' && !rule.tool && !rule.category && !rule.contains)
+-                  return React.createElement('div', { className: 'ag-set-item', key: idx },
+-                    React.createElement('span', { className: 'ag-set-item-label' }, label),
+-                    rule.description ? React.createElement('span', { className: 'ag-set-item-meta' }, rule.description) : null,
+-                    RULE_SOURCE_TAGS[src] || RULE_SOURCE_TAGS.default,
+-                    React.createElement('button', {
+-                      type: 'button', className: 'ag-set-item-del', title: '删除', 'aria-label': '删除规则',
+-                      onClick: function () {
+-                        api({ op: 'remove', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains } })
+-                      },
+-                    }, '✕'),
+-                  )
++                  return ruleItem('b2-' + idx, parts.join('  ') || '(任意)', rule.description || '',
++                    [RULE_SOURCE_TAGS[src] || RULE_SOURCE_TAGS.default,
++                     React.createElement('span', { key: 'h', className: 'ag-set-item-meta' }, '命中 ' + (rule.hitCount || 0) + ' 次')],
++                    [React.createElement('button', {
++                      key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则',
++                      onClick: function () { api({ op: 'remove', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) },
++                    }, '✕')])
+                 }),
+               ),
+         ),
+@@ -848,6 +1146,39 @@
+               ),
+         ),
+ 
++        // ---- 阈值 / 超时（④ Flash 判定参数） ----
++        React.createElement('div', { className: 'ag-set-card' },
++          React.createElement('div', { className: 'ag-set-card-head' },
++            React.createElement('div', { className: 'ag-set-card-title' },
++              React.createElement('span', { className: 'ag-set-stage' }, '④ Flash 判定'),
++              '阈值与超时'),
++            React.createElement('p', { className: 'ag-set-card-sub' },
++              '管道第四步：确认阈值 N（学习满 N 次后第 N+1 次自动放行）与 Flash 判断超时（超时自动重试 1 次，仍失败转人工）。')),
++          React.createElement('div', { className: 'ag-set-row' },
++            React.createElement('span', { className: 'ag-set-item-meta' }, '确认阈值 N：'),
++            React.createElement('input', {
++              className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: threshold,
++              onChange: function (e) { setThreshold(e.target.value) },
++            }),
++            React.createElement('button', {
++              type: 'button', className: 'ag-set-btn', disabled: busy,
++              onClick: function () { api({ op: 'set', kind: 'riskyThreshold', value: Number(threshold) }) },
++            }, '保存'),
++            React.createElement('span', { className: 'ag-set-item-meta' }, '满 ' + Number(threshold) + ' 次后第 ' + (Number(threshold) + 1) + ' 次起自动'),
++          ),
++          React.createElement('div', { className: 'ag-set-row' },
++            React.createElement('span', { className: 'ag-set-item-meta' }, 'Flash 判断超时(ms)：'),
++            React.createElement('input', {
++              className: 'ag-set-input ag-set-input-num', type: 'number', min: 1000, value: timeoutMs,
++              onChange: function (e) { setTimeoutMs(e.target.value) },
++            }),
++            React.createElement('button', {
++              type: 'button', className: 'ag-set-btn', disabled: busy,
++              onClick: function () { api({ op: 'set', kind: 'judgeTimeoutMs', value: Number(timeoutMs) }) },
++            }, '保存'),
++          ),
++        ),
++
+         // ---- 学习状态（⑤ 学习沉淀） ----
+         React.createElement('div', { className: 'ag-set-card' },
+           React.createElement('div', { className: 'ag-set-card-head' },
+@@ -879,39 +1210,192 @@
+               ),
+         ),
+ 
+-        // ---- 阈值 / 超时（④ Flash 判定参数） ----
++        // ---- 自动学习（⑥ 会话记忆 / 晋升 / 毕业 / 自学习） ----
+         React.createElement('div', { className: 'ag-set-card' },
+           React.createElement('div', { className: 'ag-set-card-head' },
+             React.createElement('div', { className: 'ag-set-card-title' },
+-              React.createElement('span', { className: 'ag-set-stage' }, '④ Flash 判定'),
+-              '阈值与超时'),
++              React.createElement('span', { className: 'ag-set-stage' }, '⑥ 自动学习'),
++              '会话记忆 · 晋升 · 毕业 · 自学习'),
+             React.createElement('p', { className: 'ag-set-card-sub' },
+-              '管道第四步：确认阈值 N（学习满 N 次后第 N+1 次自动放行）与 Flash 判断超时（超时自动重试 1 次，仍失败转人工）。')),
+-          React.createElement('div', { className: 'ag-set-row' },
+-            React.createElement('span', { className: 'ag-set-item-meta' }, '确认阈值 N：'),
+-            React.createElement('input', {
+-              className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: threshold,
+-              onChange: function (e) { setThreshold(e.target.value) },
+-            }),
+-            React.createElement('button', {
+-              type: 'button', className: 'ag-set-btn', disabled: busy,
+-              onClick: function () { api({ op: 'set', kind: 'riskyThreshold', value: Number(threshold) }) },
+-            }, '保存'),
+-            React.createElement('span', { className: 'ag-set-item-meta' }, '满 ' + Number(threshold) + ' 次后第 ' + (Number(threshold) + 1) + ' 次起自动'),
+-          ),
+-          React.createElement('div', { className: 'ag-set-row' },
+-            React.createElement('span', { className: 'ag-set-item-meta' }, 'Flash 判断超时(ms)：'),
+-            React.createElement('input', {
+-              className: 'ag-set-input ag-set-input-num', type: 'number', min: 1000, value: timeoutMs,
+-              onChange: function (e) { setTimeoutMs(e.target.value) },
+-            }),
+-            React.createElement('button', {
+-              type: 'button', className: 'ag-set-btn', disabled: busy,
+-              onClick: function () { api({ op: 'set', kind: 'judgeTimeoutMs', value: Number(timeoutMs) }) },
+-            }, '保存'),
++              '零点击学习参数：人工批准过的同操作本会话直放；同类累计后自动沉淀；自学习可直接从 Flash SAFE 判定毕业。信任目录与毕业进度在 ⑦ 规则库管理。')),
++          !cfg.onboarded
++            ? React.createElement('div', { className: 'ag-alert' },
++                React.createElement('div', { className: 'ag-alert-title' }, '自动学习默认是保守的'),
++                React.createElement('div', { className: 'ag-alert-text' },
++                  '会话记忆 / 跨会话晋升 / 签名毕业已默认开启（都基于你的人工批准）；自学习默认关闭（会从 Flash 判定自学）。可以保持推荐，也可以现在开启更激进的自学习。'),
++                React.createElement('div', { className: 'ag-set-row' },
++                  React.createElement('button', {
++                    type: 'button', className: 'ag-set-btn ag-btn-xs',
++                    onClick: function () { api({ op: 'set', kind: 'onboarded', value: true }) },
++                  }, '保持推荐（保守）'),
++                  React.createElement('button', {
++                    type: 'button', className: 'ag-set-btn ag-btn-xs',
++                    onClick: function () { api({ op: 'set', kind: 'selfLearn', value: true }); api({ op: 'set', kind: 'onboarded', value: true }) },
++                  }, '开启自学习（激进）'),
++                ),
++              )
++            : null,
++          React.createElement('div', { className: 'ag-set-group' },
++            field('会话记忆',
++              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'sessionMemory', value: !(cfg.sessionMemory !== false) }) } }, cfg.sessionMemory !== false ? '开' : '关'),
++              '本会话人工批准过的同操作直接放行'),
++            field('两段式判定',
++              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'twoStage', value: !(cfg.twoStage === true) }) } }, cfg.twoStage === true ? '开' : '关'),
++              '快筛 + 复评；当前快筛模型偏保守，默认关'),
++            field('自学习',
++              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'selfLearn', value: !(cfg.selfLearn === true) }) } }, cfg.selfLearn === true ? '开' : '关'),
++              '从 Flash 连续 SAFE 判定毕业（无人工确认）'),
++            field('跨会话晋升（会话数）',
++              [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: promotionSessions, onChange: function (e) { setPromotionSessions(e.target.value) } }),
++               React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'promotionSessions', value: Number(promotionSessions) }) } }, '保存')],
++              '同一操作在多个会话确认后沉淀全局规则'),
++            field('毕业阈值（次数）',
++              [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: graduationThreshold, onChange: function (e) { setGraduationThreshold(e.target.value) } }),
++               React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'graduationThreshold', value: Number(graduationThreshold) }) } }, '保存')],
++              '同类操作人工确认次数'),
++            field('毕业会话数',
++              [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: graduationSessions, onChange: function (e) { setGraduationSessions(e.target.value) } }),
++               React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'graduationSessions', value: Number(graduationSessions) }) } }, '保存')],
++              '毕业需要的不同会话数'),
++            field('自学习阈值（次数）',
++              [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: selfLearnThreshold, onChange: function (e) { setSelfLearnThreshold(e.target.value) } }),
++               React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'selfLearnThreshold', value: Number(selfLearnThreshold) }) } }, '保存')],
++              '连续 SAFE 判定次数'),
++            field('自学习会话数',
++              [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: selfLearnSessions, onChange: function (e) { setSelfLearnSessions(e.target.value) } }),
++               React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'selfLearnSessions', value: Number(selfLearnSessions) }) } }, '保存')],
++              '自学习需要的不同会话数'),
++            field('快筛模型（可选）',
++              [React.createElement('input', { key: 'p', className: 'ag-set-input', style: { width: 110 }, placeholder: 'provider', value: stage1Provider, onChange: function (e) { setStage1Provider(e.target.value) } }),
++               React.createElement('input', { key: 'm', className: 'ag-set-input', style: { width: 130 }, placeholder: 'model', value: stage1Model, onChange: function (e) { setStage1Model(e.target.value) } }),
++               React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'stage1Provider', value: stage1Provider }); api({ op: 'set', kind: 'stage1Model', value: stage1Model }) } }, '保存')],
++              '两段式开启时生效；留空用默认模型'),
+           ),
+         ),
+ 
++        // ---- 规则库（⑦ 统一管理） ----
++        React.createElement('div', { className: 'ag-set-card' },
++          React.createElement('div', { className: 'ag-set-card-head' },
++            React.createElement('div', { className: 'ag-set-card-title' },
++              React.createElement('span', { className: 'ag-set-stage' }, '⑦ 规则库'),
++              '统一管理 · 白名单 / 永久人工 / 信任目录 / 毕业进度'),
++            React.createElement('p', { className: 'ag-set-card-sub' },
++              '查看所有生效规则的来源、命中与状态；支持搜索、启停、删除、导出与证据。')),
++          React.createElement('div', { className: 'ag-set-toolbar' },
++            React.createElement('div', { className: 'ag-set-seg' },
++              [['allow', '白名单', (cfg.allowRules || []).length], ['deny', '永久人工', (cfg.denyRules || []).length], ['trust', '信任目录', (cfg.trustRoots || []).length], ['graduation', '毕业进度', (snapshot.graduation || []).length]].map(function (tab) {
++                return React.createElement('button', {
++                  type: 'button', key: tab[0],
++                  className: 'ag-set-seg-btn' + (libTab === tab[0] ? ' ag-set-seg-active' : ''),
++                  onClick: function () { setLibTab(tab[0]) },
++                }, tab[1] + ' ' + tab[2])
++              }),
++            ),
++            React.createElement('span', { style: { flex: '1 1 auto' } }),
++            React.createElement('input', {
++              className: 'ag-set-input', style: { width: 200 }, placeholder: '搜索 tool / mode / contains / 描述',
++              value: libQuery, onChange: function (e) { setLibQuery(e.target.value) },
++            }),
++            React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: exportRules }, '导出 JSON'),
++          ),
++          (function () {
++            const warns = (snapshot.warnings && snapshot.warnings.allowRules) || []
++            const tWarns = (snapshot.warnings && snapshot.warnings.trustRoots) || []
++            const total = warns.length + tWarns.length
++            if (total === 0) return null
++            return React.createElement('div', { className: 'ag-alert' },
++              React.createElement('div', { className: 'ag-alert-title' }, '规则体检 · ' + total + ' 条可能过宽'),
++              warns.map(function (w, i) {
++                const rule = w.rule || {}
++                const label = [rule.tool, rule.mode, rule.contains ? ('contains=' + rule.contains) : ''].filter(Boolean).join(' · ') || '(任意)'
++                return React.createElement('div', { className: 'ag-alert-row', key: 'w' + i },
++                  React.createElement('span', { className: 'ag-alert-text' }, label + ' — ' + w.reasons.join('；') + (w.suggestion ? '。建议：' + w.suggestion : '')),
++                  React.createElement('button', {
++                    type: 'button', className: 'ag-set-btn ag-btn-xs',
++                    onClick: function () { api({ op: 'toggle', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) },
++                  }, '停用'),
++                )
++              }),
++              tWarns.map(function (w, i) {
++                return React.createElement('div', { className: 'ag-alert-row', key: 'tw' + i },
++                  React.createElement('span', { className: 'ag-alert-text' }, w.root + ' — ' + w.reasons.join('；')),
++                  React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'remove', kind: 'trustRoots', value: w.root }) } }, '移除'),
++                )
++              }),
++            )
++          })(),
++          (function () {
++            const q = String(libQuery || '').trim().toLowerCase()
++            const hit = function (text) { return q === '' || String(text || '').toLowerCase().indexOf(q) >= 0 }
++            const empty = function (text) { return React.createElement('div', { className: 'ag-set-empty' }, text) }
++            if (libTab === 'allow') {
++              const rules = (cfg.allowRules || []).filter(function (r) { return hit([r.tool, r.mode, r.category, r.contains, r.description, r.signature].join(' ')) })
++              if (rules.length === 0) return empty('没有匹配的白名单规则')
++              return React.createElement('div', { className: 'ag-set-list' }, rules.map(function (rule, idx) {
++                const parts = []
++                if (rule.tool) parts.push('tool=' + rule.tool)
++                if (rule.mode) parts.push('mode=' + rule.mode)
++                if (rule.category) parts.push('category=' + rule.category)
++                if (rule.contains) parts.push('contains=' + rule.contains)
++                if (rule.signature) parts.push('sig=' + String(rule.signature).split('|').slice(2).join('|'))
++                const actions = []
++                if (rule.evidenceEventId) actions.push(React.createElement('button', { key: 'e', type: 'button', className: 'ag-set-btn ag-btn-xs', title: '复制触发该规则的事件 ID', onClick: function () { copyText(rule.evidenceEventId) } }, '证据 #' + rule.evidenceEventId))
++                actions.push(React.createElement('button', { key: 't', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'toggle', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) } }, rule.disabled ? '启用' : '停用'))
++                actions.push(React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则', onClick: function () { api({ op: 'remove', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) } }, '✕'))
++                const tags = [RULE_SOURCE_TAGS[ruleSource(rule)] || RULE_SOURCE_TAGS.default]
++                if (rule.disabled) tags.push(React.createElement('span', { key: 'x', className: 'ag-set-tag ag-set-tag-gray' }, '已停用'))
++                tags.push(React.createElement('span', { key: 'h', className: 'ag-set-item-meta' }, '命中 ' + (rule.hitCount || 0) + ' 次' + (rule.lastHit ? ' · 最近 ' + new Date(rule.lastHit).toLocaleString() : '')))
++                return ruleItem('lib-a-' + idx, parts.join('  ') || '(任意)', rule.description || '', tags, actions)
++              }))
++            }
++            if (libTab === 'deny') {
++              const rules = (cfg.denyRules || []).filter(function (r) { return hit([r.tool, r.mode, r.category, r.contains, r.description].join(' ')) })
++              if (rules.length === 0) return empty('没有匹配的永久人工规则')
++              return React.createElement('div', { className: 'ag-set-list' }, rules.map(function (rule, idx) {
++                const parts = []
++                if (rule.tool) parts.push('tool=' + rule.tool)
++                if (rule.mode) parts.push('mode=' + rule.mode)
++                if (rule.category) parts.push('category=' + rule.category)
++                if (rule.contains) parts.push('contains=' + rule.contains)
++                const actions = [
++                  React.createElement('button', { key: 't', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'toggle', kind: 'denyRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains } }) } }, rule.disabled ? '启用' : '停用'),
++                  React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则', onClick: function () { api({ op: 'remove', kind: 'denyRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains } }) } }, '✕'),
++                ]
++                const tags = [rule.disabled ? React.createElement('span', { key: 'x', className: 'ag-set-tag ag-set-tag-gray' }, '已停用') : null].filter(Boolean)
++                return ruleItem('lib-d-' + idx, parts.join('  ') || '(任意)', rule.description || '', tags, actions)
++              }))
++            }
++            if (libTab === 'trust') {
++              const roots = (cfg.trustRoots || []).filter(function (r) { return hit(r) })
++              const addRow = React.createElement('div', { className: 'ag-set-row' },
++                React.createElement('input', {
++                  className: 'ag-set-input', style: { flex: '1 1 240px' }, placeholder: '信任目录，如 ~/src 或 /tmp/work', value: newLibTrustRoot,
++                  onChange: function (e) { setNewLibTrustRoot(e.target.value) },
++                  onKeyDown: function (e) { if (e.key === 'Enter' && newLibTrustRoot.trim()) { api({ op: 'add', kind: 'trustRoots', value: newLibTrustRoot.trim() }); setNewLibTrustRoot('') } },
++                }),
++                React.createElement('button', {
++                  type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy || !newLibTrustRoot.trim(),
++                  onClick: function () { api({ op: 'add', kind: 'trustRoots', value: newLibTrustRoot.trim() }); setNewLibTrustRoot('') },
++                }, '添加'),
++              )
++              const list = roots.length === 0
++                ? empty('没有匹配的信任目录')
++                : React.createElement('div', { className: 'ag-set-list' }, roots.map(function (root, idx) {
++                    return ruleItem('lib-t-' + idx, root, '范围内的操作直接放行', [],
++                      [React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '移除', 'aria-label': '移除信任目录', onClick: function () { api({ op: 'remove', kind: 'trustRoots', value: root }) } }, '✕')])
++                  }))
++              return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } }, addRow, list)
++            }
++            const gs = (snapshot.graduation || []).filter(function (g) { return hit(g.signature + ' ' + (g.tool || '') + ' ' + (g.mode || '')) })
++            if (gs.length === 0) return empty('没有匹配的毕业进度')
++            return React.createElement('div', { className: 'ag-set-list' }, gs.map(function (g, idx) {
++              return ruleItem('lib-g-' + idx, String(g.signature).split('|').slice(2).join('|'), '',
++                [React.createElement('span', { key: 'm', className: 'ag-set-item-meta' }, (g.tool || '') + ' · ' + (g.mode || '任意') + ' · 已确认 ' + g.count + ' 次 · ' + g.sessions + ' 个会话')],
++                [React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '清除该学习进度', 'aria-label': '清除学习进度', onClick: function () { api({ op: 'remove', kind: 'graduation', value: g.signature }) } }, '✕')])
++            }))
++          })(),
++        ),
++
+         // ---- 反馈 ----
+         feedback
+           ? React.createElement('div', { className: feedback.ok ? 'ag-set-ok' : 'ag-set-err' }, feedback.msg)
