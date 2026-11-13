@@ -196,7 +196,18 @@ window.__ModuleLoader__.load({
 .ag-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .ag-tab-active{background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary)}
 .ag-records{flex:1 1 auto;min-height:0;flex-direction:column}
-.ag-settings-embed{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px 14px 48px}
+.ag-settings-embed{flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 12px 48px}
+.ag-settings-nav{position:sticky;top:0;z-index:2;display:flex;flex-direction:column;gap:6px;padding:10px 2px 8px;background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);margin-bottom:10px}
+.ag-settings-title{font-size:13px;line-height:20px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.ag-settings-chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.ag-settings-chip{flex:none;border:1px solid var(--dsw-alias-border-l2);background:transparent;border-radius:999px;height:24px;padding:0 9px;font:inherit;font-size:11px;line-height:22px;color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}
+.ag-settings-chip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.ag-settings-embed .ag-set-card{scroll-margin-top:96px;padding:12px 14px}
+.ag-settings-embed .ag-set{max-width:none}
+.ag-tab-count{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-left:5px;padding:0 4px;border-radius:8px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px}
+.ag-dash-head{flex:none;display:flex;align-items:center;gap:8px;padding:8px 14px 0}
+.ag-dash-title{font-size:12px;line-height:18px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.ag-dash-hint{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
 `
 
     const VERDICT_LABELS = {
@@ -512,6 +523,7 @@ window.__ModuleLoader__.load({
       const [counters, setCounters] = React.useState(null) // {consecutive, total, limits} | null
       const [kindFilter, setKindFilter] = React.useState('all')
       const [viewTab, setViewTab] = React.useState('records')
+      const [dashOpen, setDashOpen] = React.useState(true)
       const [query, setQuery] = React.useState('')
       const [rulesSnap, setRulesSnap] = React.useState(null)
       const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
@@ -690,6 +702,7 @@ window.__ModuleLoader__.load({
         ['rejected', '已拒绝', counts.rejected],
         ['escalate', '需人工介入', counts.escalate],
       ]
+      const scrollToSection = function (id) { const el = document.getElementById(id); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
       const stat = function (label, value, sub) {
         return React.createElement('div', { className: 'ag-stat', key: label },
           React.createElement('span', { className: 'ag-stat-label' }, label),
@@ -786,11 +799,20 @@ window.__ModuleLoader__.load({
               key: t[0], type: 'button',
               className: 'ag-tab' + (viewTab === t[0] ? ' ag-tab-active' : ''),
               onClick: function () { setViewTab(t[0]) },
-            }, t[1])
+            }, t[1], t[0] === 'records' ? React.createElement('span', { className: 'ag-tab-count' }, String(total)) : null)
           }),
         ),
         React.createElement('div', { className: 'ag-records', style: { display: viewTab === 'settings' ? 'none' : 'flex' } },
-        React.createElement('div', { className: 'ag-dash' },
+        React.createElement('div', { className: 'ag-dash-head' },
+          React.createElement('span', { className: 'ag-dash-title' }, '概览'),
+          React.createElement('span', { className: 'ag-dash-hint' }, '最近 7 天 · 全部 ' + total + ' 条'),
+          React.createElement('span', { style: { flex: '1 1 auto' } }),
+          React.createElement('button', {
+            type: 'button', className: 'ag-set-btn ag-btn-xs',
+            onClick: function () { setDashOpen(!dashOpen) },
+          }, dashOpen ? '收起' : '展开'),
+        ),
+        React.createElement('div', { className: 'ag-dash', style: { display: dashOpen ? 'flex' : 'none' } },
           React.createElement('div', { className: 'ag-stat-grid' },
             stat('自动放行', counts.auto, pct(counts.auto) + '% · Flash / 规则'),
             stat('人工通过', counts.approved, pct(counts.approved) + '%'),
@@ -854,6 +876,12 @@ window.__ModuleLoader__.load({
               onClick: function () { setKindFilter(c[0]) },
             }, c[1] + ' ' + c[2])
           }),
+          (kindFilter !== 'all' || query)
+            ? React.createElement('button', {
+                type: 'button', className: 'ag-chip',
+                onClick: function () { setKindFilter('all'); setQuery('') },
+              }, '清除筛选 ×')
+            : null,
           React.createElement('span', { style: { flex: '1 1 auto' } }),
           React.createElement('input', {
             className: 'ag-set-input ag-search', placeholder: '搜索工具 / 理由 / 参数',
@@ -903,14 +931,27 @@ window.__ModuleLoader__.load({
             : React.createElement('div', { className: 'ag-list' },
                 groups.map(function (g) {
                   return React.createElement('div', { className: 'ag-group', key: g.day },
-                    React.createElement('div', { className: 'ag-group-label' }, g.day),
+                    React.createElement('div', { className: 'ag-group-label' }, g.day + ' · ' + g.items.length + ' 条'),
                     g.items.map(renderRow),
                   )
                 }),
               ),
         ),
         viewTab === 'settings'
-          ? React.createElement('div', { className: 'ag-settings-embed' }, React.createElement(RulesSettings, {}))
+          ? React.createElement('div', { className: 'ag-settings-embed' },
+              React.createElement('div', { className: 'ag-settings-nav' },
+                React.createElement('div', { className: 'ag-settings-title' }, '自动审批设置'),
+                React.createElement('div', { className: 'ag-settings-chips' },
+                  [['setup', '初始化'], ['pipeline', '判定管道'], ['deny', '① DENY'], ['allow', '② 白名单'], ['denyrules', '③ 永久人工'], ['flash', '④ Flash'], ['learning', '⑤ 学习'], ['autolearn', '⑥ 自动学习'], ['library', '⑦ 规则库']].map(function (item) {
+                    return React.createElement('button', {
+                      type: 'button', key: item[0], className: 'ag-settings-chip',
+                      onClick: function () { scrollToSection('ag-tabsec-' + item[0]) },
+                    }, item[1])
+                  }),
+                ),
+              ),
+              React.createElement(RulesSettings, { idPrefix: 'ag-tabsec-' }),
+            )
           : null,
         diffOpen
           ? React.createElement(DiffPanel, {
@@ -940,6 +981,7 @@ window.__ModuleLoader__.load({
     }
 
     function RulesSettings(props) {
+      const idPrefix = (props && props.idPrefix) || 'ag-sec-'
       const [snapshot, setSnapshot] = React.useState(null)
       const [error, setError] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
@@ -1086,7 +1128,7 @@ window.__ModuleLoader__.load({
           '管理自动审批的放行与阻塞规则：查看当前判定管道、黑/白名单与学习进度，可自行添加规则（如把 edit 加入白名单后自动放行）或终止错误的学习。修改即时生效（热更新）。'),
 
         // ---- 初始化卡片 ----
-        React.createElement('div', { className: 'ag-set-card' },
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'setup' },
           React.createElement('div', { className: 'ag-set-card-head' },
             React.createElement('div', { className: 'ag-set-card-title' }, '初始化权限预设'),
             React.createElement('p', { className: 'ag-set-card-sub' },
@@ -1104,7 +1146,7 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 管道总览 ----
-        React.createElement('div', { className: 'ag-set-card' },
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'pipeline' },
           React.createElement('div', { className: 'ag-set-card-head' },
             React.createElement('div', { className: 'ag-set-card-title' }, '当前判定管道'),
             React.createElement('p', { className: 'ag-set-card-sub' },
@@ -1118,7 +1160,7 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 黑名单（denyKeywords） ----
-        React.createElement('div', { className: 'ag-set-card' },
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'deny' },
           React.createElement('div', { className: 'ag-set-card-head' },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '① DENY 层'),
@@ -1157,7 +1199,7 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 白名单（allowRules） ----
-        React.createElement('div', { className: 'ag-set-card' },
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'allow' },
           React.createElement('div', { className: 'ag-set-card-head' },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '② 白名单层'),
@@ -1201,7 +1243,7 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 永久人工（denyRules） ----
-        React.createElement('div', { className: 'ag-set-card' },
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'denyrules' },
           React.createElement('div', { className: 'ag-set-card-head' },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '③ denyRules 层'),
@@ -1231,7 +1273,7 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 阈值 / 超时（④ Flash 判定参数） ----
-        React.createElement('div', { className: 'ag-set-card' },
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'flash' },
           React.createElement('div', { className: 'ag-set-card-head' },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '④ Flash 判定'),
@@ -1264,7 +1306,7 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 学习状态（⑤ 学习沉淀） ----
-        React.createElement('div', { className: 'ag-set-card' },
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'learning' },
           React.createElement('div', { className: 'ag-set-card-head' },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '⑤ 学习沉淀'),
@@ -1295,7 +1337,7 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 自动学习（⑥ 会话记忆 / 晋升 / 毕业 / 自学习） ----
-        React.createElement('div', { className: 'ag-set-card' },
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'autolearn' },
           React.createElement('div', { className: 'ag-set-card-head' },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '⑥ 自动学习'),
@@ -1358,7 +1400,7 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 规则库（⑦ 统一管理） ----
-        React.createElement('div', { className: 'ag-set-card' },
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'library' },
           React.createElement('div', { className: 'ag-set-card-head' },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '⑦ 规则库'),
