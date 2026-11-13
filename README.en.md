@@ -4,6 +4,17 @@ Auto-approval gate for DeepSeek Harness: Flash risk judging + confirmation-based
 
 > **Upstream & license**: forked from [moon09300731/dsh-approval-gate](https://github.com/moon09300731/dsh-approval-gate) v0.5.0 (MIT). Original copyright belongs to the upstream author; modifications are released under MIT as well. See `LICENSE` and `FORK-CHANGES.md`.
 
+## Upstream project
+
+This project is based on **moon09300731/dsh-approval-gate** v0.5.0 (MIT):
+
+- Upstream: <https://github.com/moon09300731/dsh-approval-gate>
+- Author: moon09300731
+- Inherited: Flash judging pipeline, confirmation-based learning, settings rule cards, approval view, diff revert and snapshots
+- Added by this fork: real tool arguments, remember/forget, trust roots, session memory/cross-session promotion, signature graduation, self-learning, rule library, and more (see `FORK-CHANGES.md`)
+
+Thanks to the upstream author for the design and implementation. The name `moongate` is a nod to the author's handle `moon09300731`. If you like the idea, please give the upstream project a star.
+
 ## Features
 
 **Upstream**

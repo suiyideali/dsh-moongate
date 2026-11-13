@@ -4,6 +4,17 @@ DeepSeek Harness 的自动审批插件：Flash 预判 + 确认制学习 + 零点
 
 > **来源与许可**：基于 [moon09300731/dsh-approval-gate](https://github.com/moon09300731/dsh-approval-gate) v0.5.0（MIT）修改。原版权归原作者所有，修改部分同样以 MIT 发布，详见 `LICENSE` 与 `FORK-CHANGES.md`。
 
+## 原项目
+
+本项目基于 **moon09300731/dsh-approval-gate** v0.5.0（MIT）修改而来：
+
+- 原项目：<https://github.com/moon09300731/dsh-approval-gate>
+- 作者：moon09300731
+- 继承：Flash 判定管道、确认制学习、设置页规则卡片、审批视图、diff 撤销与快照
+- 本 fork 在其上新增：真实参数判定、记住/取消记住、信任目录、会话记忆/跨会话晋升、签名毕业、自学习、规则库等（详见 `FORK-CHANGES.md`）
+
+感谢原作者的设计与实现；`moongate`（月门）这个名字取意自其 ID `moon09300731`，作为致敬。如果你喜欢这套思路，也请给原项目点一个 Star。
+
 ## 特性
 
 **上游原有**
