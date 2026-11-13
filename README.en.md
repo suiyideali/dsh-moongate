@@ -137,19 +137,34 @@ After a reload, the session permission dropdown shows **自动审批（Flash）*
 
 ## UI
 
-The approval view (right of the trajectory) is a dashboard:
+The approval view (right of the trajectory) is a **dashboard**, not a simple list; it puts "see exceptions, understand the decision, control learning" in one place.
 
-- stat cards for auto / manual / rejected / needs-human, with percentages;
-- a four-segment distribution bar and rule overview (total / self-learned / graduated / trust roots);
-- a 7-day approval trend and top tools;
-- type chips + search over tool/reason/arguments;
-- a date-grouped timeline with arguments, remember/forget, and diff snapshots.
+### Records tab
 
-![Approval view schematic](docs/approval-view.svg)
+| Area | What it shows | Question it answers |
+| --- | --- | --- |
+| **Needs attention** | Rejected + escalated summary (only shown when such records exist), with a "show only these" action | Is there anything I need to handle? |
+| **Overview** (collapsed by default, expandable) | Four stat cards: auto / manual / rejected / needs-human, with percentages | What is the approval mix in this session? |
+| | Four-segment distribution bar + rule overview: total / self-learned / graduated / trust roots | How much is automated, and how much has been learned? |
+| | 7-day approval trend + top tools | When, and with which tools, do approvals happen? |
+| **Filters** | All / auto / manual / rejected / escalated / attention chips + search over tool, reason and arguments | Find a class of records quickly |
+| **Timeline** | Date-grouped rows with tool, verdict tag, time, reason, real arguments, remember/forget, files and diff snapshots | What exactly happened, why was it allowed, and can I undo it? |
+
+> The overview is collapsed by default so the timeline comes first; expand it for the full stats. Rows with a snapshot show "已保留改动快照 · 可在下方 diff 中撤销", keeping the undo path next to the decision.
+
+![Approval view schematic (Records tab, overview expanded)](docs/approval-view.svg)
 
 > Schematic only; the actual rendering depends on the plugin.
 
-Settings → Auto approval has seven cards:
+### Settings tab
+
+The approval view embeds the full Auto approval settings (the same configuration as the Settings page):
+
+- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / ⑤ Learning / ⑥ Auto learning / ⑦ Rule library;
+- click to scroll to the card; changes apply hot without leaving the view;
+- the Settings → Auto approval entry remains as a second entry point.
+
+Seven configuration cards:
 
 | Card | Content |
 | --- | --- |
