@@ -1,4 +1,4 @@
-# dsh-approval-gate（学习增强版 / fork）
+# dsh-moongate（学习增强版 / fork）
 
 DeepSeek Harness 的自动审批插件：Flash 预判 + 确认制学习 + 零点击学习（会话记忆 / 跨会话晋升 / 签名毕业）+ 规则库管理。
 
@@ -27,7 +27,14 @@ DeepSeek Harness 的自动审批插件：Flash 预判 + 确认制学习 + 零点
 
 ## 安装（当前 DSH 0.2.x）
 
-本 fork 以 pnpm patch 形式维护（完整 diff 在 `patches/`）：
+**方式一（推荐）：直接安装 fork 包**
+
+```sh
+dsh plugin --profile desktop add github:suiyideali/dsh-moongate
+# 发布 npm 后也可以：dsh plugin --profile desktop add dsh-moongate
+```
+
+**方式二：给上游打补丁**（保留上游包名；完整 diff 在 `patches/`）
 
 ```sh
 # 1) 安装上游包（若尚未安装）
@@ -118,6 +125,12 @@ CI（`.github/workflows/ci.yml`）会跑语法检查、smoke 测试，并验证�
 - 会话内批准记忆只在插件进程内，插件重载后清空；跨会话晋升/毕业持久化在 `memory.json`。
 - 快筛模型覆盖在部分 provider/模型路由上会失败（会安全回退到复评）；`twoStage` 默认关闭。
 - 针对 DSH 0.2.x 的 API 适配；DSH 升级后可能需要再次调整。
+
+## 致敬 / Credits
+
+本项目是 [moon09300731/dsh-approval-gate](https://github.com/moon09300731/dsh-approval-gate) v0.5.0（MIT）的衍生版。上游的 Flash 判定管道、确认制学习与审批视图是本项目的地基；包名 `moongate`（月门）取意自原作者的 ID `moon09300731`，作为致敬。原版权归原作者所有，修改部分同样以 MIT 发布。
+
+如果你喜欢这套思路，也请给上游点一个 Star。
 
 ## License
 

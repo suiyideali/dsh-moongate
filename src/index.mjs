@@ -34,7 +34,7 @@ import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, rea
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-const NAME = 'dsh-approval-gate'
+const NAME = 'dsh-moongate'  // 包/仓库更名；数据目录仍为 auto-approve 以兼容上游
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
 const DATA_DIR = join(DSH_HOME, 'auto-approve')
 const ALLOWLIST_PATH = join(DATA_DIR, 'allowlist.json')

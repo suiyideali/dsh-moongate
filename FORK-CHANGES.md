@@ -1,5 +1,7 @@
 # Fork changes（相对上游 0.5.0）
 
+项目名：`dsh-moongate`（致敬上游 `dsh-approval-gate`；插件内部 `NAME` 已更名，数据目录仍为 `auto-approve` 以兼容旧配置）。
+
 基线：`dsh-approval-gate@0.5.0`（npm）→ 上游 [moon09300731/dsh-approval-gate](https://github.com/moon09300731/dsh-approval-gate)，MIT。
 
 本 fork 只修改了两个文件：`src/index.mjs`（host）与 `client.js`（浏览器端）；未改 `package.json`、`cordis.patch.yml`、`README`（上游）。

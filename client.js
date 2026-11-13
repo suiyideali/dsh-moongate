@@ -59,6 +59,20 @@ window.__ModuleLoader__.load({
 .ag-row-reason{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;word-break:break-all;white-space:pre-wrap}
 .ag-row-files{display:flex;flex-wrap:wrap;gap:4px}
 .ag-row-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ag-dash-cols{display:grid;grid-template-columns:2fr 1fr;gap:10px}
+@media (max-width: 640px){.ag-dash-cols{grid-template-columns:1fr}}
+.ag-panel{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.ag-panel-title{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);font-weight:500}
+.ag-trend{display:flex;align-items:flex-end;gap:8px;height:90px}
+.ag-trend-col{flex:1 1 0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;min-width:0}
+.ag-trend-value{font-size:10px;line-height:14px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums}
+.ag-trend-bar{width:70%;max-width:34px;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,var(--dsw-alias-state-business-primary),color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent))}
+.ag-trend-label{font-size:10px;line-height:14px;color:var(--dsw-alias-label-caption);white-space:nowrap}
+.ag-top{display:flex;flex-direction:column;gap:6px}
+.ag-top-row{display:grid;grid-template-columns:72px 1fr 24px;align-items:center;gap:6px;font-size:11px;line-height:16px}
+.ag-top-name{color:var(--dsw-alias-label-secondary);font-family:var(--ds-font-family-code);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-top-bar{height:6px;border-radius:3px;background:var(--dsw-alias-state-success-primary);opacity:.75;min-width:4px}
+.ag-top-count{color:var(--dsw-alias-label-tertiary);text-align:right;font-variant-numeric:tabular-nums}
 .ag-file-chip{box-sizing:border-box;max-width:260px;height:20px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:5px;align-items:center;padding:0 7px;font:11px/18px var(--ds-font-family-code);display:inline-flex;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
 .ag-empty{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
 .ag-loading{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
@@ -641,6 +655,27 @@ window.__ModuleLoader__.load({
         if (!groupMap[day]) { groupMap[day] = { day: day, items: [] }; groups.push(groupMap[day]) }
         groupMap[day].items.push(ev)
       })
+      const dayKey = function (ts) {
+        const d = new Date(ts)
+        if (isNaN(d.getTime())) return ''
+        const p = function (n) { return (n < 10 ? '0' : '') + n }
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+      }
+      const now = new Date()
+      const trend = []
+      for (let i = 6; i >= 0; i -= 1) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+        const p = function (n) { return (n < 10 ? '0' : '') + n }
+        trend.push({ key: d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()), label: (d.getMonth() + 1) + '/' + d.getDate(), count: 0 })
+      }
+      const trendMap = {}
+      trend.forEach(function (t) { trendMap[t.key] = t })
+      rows.forEach(function (ev) { const k = dayKey(ev.ts); if (trendMap[k]) trendMap[k].count += 1 })
+      const trendMax = Math.max.apply(null, trend.map(function (t) { return t.count }).concat([1]))
+      const toolCounts = {}
+      rows.forEach(function (ev) { const t = ev.tool || 'tool'; toolCounts[t] = (toolCounts[t] || 0) + 1 })
+      const topTools = Object.keys(toolCounts).map(function (t) { return { tool: t, count: toolCounts[t] } }).sort(function (a, b) { return b.count - a.count }).slice(0, 5)
+      const topMax = topTools.length ? topTools[0].count : 1
       const chips = [
         ['all', '全部', total],
         ['auto', '自动放行', counts.auto],
@@ -764,6 +799,34 @@ window.__ModuleLoader__.load({
             stat('自学习规则', ruleStats.self, 'Flash SAFE 毕业'),
             stat('毕业规则', ruleStats.graduated, '人工确认毕业'),
             stat('信任目录', ruleStats.trust, '免审批目录'),
+          ),
+          React.createElement('div', { className: 'ag-dash-cols' },
+            React.createElement('div', { className: 'ag-panel' },
+              React.createElement('div', { className: 'ag-panel-title' }, '最近 7 天审批趋势'),
+              React.createElement('div', { className: 'ag-trend' },
+                trend.map(function (t) {
+                  return React.createElement('div', { className: 'ag-trend-col', key: t.key },
+                    React.createElement('span', { className: 'ag-trend-value' }, t.count ? String(t.count) : ''),
+                    React.createElement('span', { className: 'ag-trend-bar', style: { height: Math.max(2, Math.round(t.count / trendMax * 64)) + 'px' } }),
+                    React.createElement('span', { className: 'ag-trend-label' }, t.label),
+                  )
+                }),
+              ),
+            ),
+            React.createElement('div', { className: 'ag-panel' },
+              React.createElement('div', { className: 'ag-panel-title' }, 'Top 工具'),
+              topTools.length === 0
+                ? React.createElement('div', { className: 'ag-set-empty' }, '暂无数据')
+                : React.createElement('div', { className: 'ag-top' },
+                    topTools.map(function (t) {
+                      return React.createElement('div', { className: 'ag-top-row', key: t.tool },
+                        React.createElement('span', { className: 'ag-top-name' }, t.tool),
+                        React.createElement('span', { className: 'ag-top-bar', style: { width: Math.max(4, Math.round(t.count / topMax * 100)) + '%' } }),
+                        React.createElement('span', { className: 'ag-top-count' }, String(t.count)),
+                      )
+                    }),
+                  ),
+            ),
           ),
         ),
         React.createElement('div', { className: 'ag-toolbar2' },

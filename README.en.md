@@ -1,4 +1,4 @@
-# dsh-approval-gate (learning-enhanced fork)
+# dsh-moongate (learning-enhanced fork)
 
 Auto-approval gate for DeepSeek Harness: Flash risk judging + confirmation-based learning + zero-click learning (session memory, cross-session promotion, signature graduation) + a rule library.
 
@@ -27,7 +27,14 @@ Auto-approval gate for DeepSeek Harness: Flash risk judging + confirmation-based
 
 ## Install (DSH 0.2.x)
 
-The fork is maintained as a pnpm patch (`patches/` contains the full diff):
+**Option 1 (recommended): install the fork package**
+
+```sh
+dsh plugin --profile desktop add github:suiyideali/dsh-moongate
+# after publishing to npm: dsh plugin --profile desktop add dsh-moongate
+```
+
+**Option 2: patch the upstream package** (keeps the upstream package name; full diff in `patches/`)
 
 ```sh
 dsh plugin --profile desktop add dsh-approval-gate@0.5.0
@@ -109,6 +116,12 @@ CI (`.github/workflows/ci.yml`) runs syntax checks, smoke tests, and verifies th
 - Session memory is in-process and cleared on plugin reload; cross-session memory lives in `memory.json`.
 - Fast-screen model overrides fail on some provider routes (falls back safely); `twoStage` stays off by default.
 - API adaptation targets DSH 0.2.x; re-verify after DSH upgrades.
+
+## Credits / homage
+
+This project is a derivative of [moon09300731/dsh-approval-gate](https://github.com/moon09300731/dsh-approval-gate) v0.5.0 (MIT). The upstream Flash judging pipeline, confirmation-based learning and approval view are the foundation. The name `moongate` is a nod to the upstream author's handle `moon09300731`. Original copyright remains with the upstream author; modifications are released under MIT.
+
+If you like the idea, please give upstream a star too.
 
 ## License
 

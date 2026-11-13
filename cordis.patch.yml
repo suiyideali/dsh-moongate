@@ -3,5 +3,5 @@
 # to the profile's cordis.patch.yml (see README) — dynamic plugins cannot
 # extend the frozen presets table.
 - insert:
-    - id: dsh-approval-gate
-      name: 'dsh-approval-gate'
+    - id: dsh-moongate
+      name: 'dsh-moongate'

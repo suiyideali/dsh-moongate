@@ -11,7 +11,7 @@ process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-approval-gate-test-'))
 const mod = await import('../src/index.mjs')
 const plugin = mod.default
 
-assert.equal(plugin.name, 'dsh-approval-gate', 'plugin name')
+assert.equal(plugin.name, 'dsh-moongate', 'plugin name')
 assert.equal(typeof plugin.apply, 'function', 'plugin apply function')
 assert.ok(Array.isArray(plugin.inject), 'plugin inject list')
 for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultModel', 'timer', 'webServer']) {
@@ -30,7 +30,7 @@ assert.ok(patch.includes('--- a/src/index.mjs'), 'patch targets host source')
 assert.ok(patch.includes('--- a/client.js'), 'patch targets client bundle')
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-assert.equal(pkg.name, 'dsh-approval-gate', 'package name')
+assert.equal(pkg.name, 'dsh-moongate', 'package name')
 assert.equal(pkg.license, 'MIT', 'license stays MIT')
 
 console.log('smoke: ok')
