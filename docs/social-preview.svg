@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B1220"/>
+      <stop offset="0.55" stop-color="#101B33"/>
+      <stop offset="1" stop-color="#1A1030"/>
+    </linearGradient>
+    <linearGradient id="moon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E8EEFF"/>
+      <stop offset="1" stop-color="#9DB4FF"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4D6BFE"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <g opacity="0.35">
+    <circle cx="1120" cy="120" r="1.6" fill="#fff"/>
+    <circle cx="1040" cy="210" r="1.2" fill="#fff"/>
+    <circle cx="1180" cy="260" r="1.4" fill="#fff"/>
+    <circle cx="980" cy="120" r="1" fill="#fff"/>
+    <circle cx="1160" cy="380" r="1.1" fill="#fff"/>
+    <circle cx="900" cy="330" r="0.9" fill="#fff"/>
+    <circle cx="1210" cy="170" r="0.8" fill="#fff"/>
+  </g>
+  <g filter="url(#glow)">
+    <circle cx="1030" cy="150" r="46" fill="url(#moon)" opacity="0.95"/>
+    <circle cx="1050" cy="136" r="46" fill="#101B33"/>
+  </g>
+  <g transform="translate(90,150)">
+    <rect x="0" y="0" width="64" height="220" rx="10" fill="url(#accent)" opacity="0.9"/>
+    <rect x="196" y="0" width="64" height="220" rx="10" fill="url(#accent)" opacity="0.55"/>
+    <rect x="0" y="0" width="260" height="42" rx="10" fill="url(#accent)"/>
+    <circle cx="130" cy="110" r="34" fill="none" stroke="#E8EEFF" stroke-width="6" opacity="0.9"/>
+    <circle cx="130" cy="110" r="12" fill="#E8EEFF"/>
+  </g>
+  <text x="420" y="270" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial" font-size="92" font-weight="800" fill="#F8FAFF" letter-spacing="-2">dsh-moongate</text>
+  <text x="424" y="336" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial" font-size="30" fill="#B9C6E6">Learning approval gate for DeepSeek Harness</text>
+  <rect x="424" y="378" width="470" height="2" fill="#2A3B5E"/>
+  <text x="424" y="430" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial" font-size="22" fill="#8FA3C8">Flash judging · confirmation learning · session memory</text>
+  <text x="424" y="466" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial" font-size="22" fill="#8FA3C8">cross-session promotion · graduation · self-learning</text>
+  <g transform="translate(424,520)">
+    <rect x="0" y="0" width="196" height="44" rx="22" fill="#16233D" stroke="#2A3B5E"/>
+    <text x="22" y="29" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial" font-size="18" fill="#AFC0E4">Fork of dsh-approval-gate</text>
+  </g>
+  <text x="646" y="548" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial" font-size="18" fill="#6E82A8">MIT · tribute to moon09300731</text>
+</svg>
