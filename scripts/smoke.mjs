@@ -22,7 +22,7 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
 assert.ok(client.includes('function T(zh, en)'), 'client has i18n helper')
-for (const marker of ['记住这次操作', '取消记住', '⑥ 规则库', '学习与沉淀', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任', '知道了，开始使用', '自学习已开启', '以后项目内']) {
+for (const marker of ['记住这次操作', '取消记住', '⑥ 规则库', '学习与沉淀', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任', '知道了，开始使用', '自学习已开启', '以后项目内', 'ag-set-collapsed']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
 assert.ok(!client.includes("slots.inject('settings.section'"), 'settings section entry removed')

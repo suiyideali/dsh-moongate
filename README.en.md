@@ -206,6 +206,7 @@ The approval view embeds the full Auto approval settings; this is the **only ent
 
 - sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / ⑤ Learning & sedimentation / ⑥ Rule library;
 - click to scroll to the card; changes apply hot without leaving the view;
+- click a card title to collapse / expand it (collapsed by default); clicking a top chip expands then scrolls.
 - the DSH global Settings page no longer duplicates the Auto approval entry; configure everything from the Approval tab.
 
 Seven configuration cards:
