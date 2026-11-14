@@ -1387,7 +1387,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    // ================= 设置页：自动审批规则管理（settings.section） =================
+    // ================= 审批页设置 tab：自动审批规则管理 =================
     const RULE_SOURCE_TAGS = {
       default: React.createElement('span', { className: 'ag-set-tag ag-set-tag-blue' }, '预置'),
       learned: React.createElement('span', { className: 'ag-set-tag ag-set-tag-green' }, '学习沉淀'),
@@ -2151,13 +2151,6 @@ window.__ModuleLoader__.load({
           )
         })
 
-        // 设置页：自动审批规则管理（settings.section）
-        slots.inject('settings.section', function () {
-          return slots.register(
-            { name: 'settings.section', id: 'dsh-approval-gate.settings', order: 60, label: '自动审批' },
-            function (props) { return React.createElement(RulesSettings, { slotsProps: props }) },
-          )
-        })
       },
     }
 

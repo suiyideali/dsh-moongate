@@ -171,7 +171,7 @@ After a reload, the session permission dropdown shows **自动审批（Flash）*
 ## Quick start
 
 1. Select **自动审批（Flash）** in the session permission dropdown — per session only.
-2. **No learning setup is required**: self-learning, session memory, and cross-session promotion are on by default. The first time you open Settings → Auto approval, a short note explains:
+2. **No learning setup is required**: self-learning, session memory, and cross-session promotion are on by default. The first time you open **Approval → Settings**, a short note explains:
    - **Default**: after 3 cumulative Flash `SAFE` verdicts (at least 1 session), a rule is learned; session memory / promotion / graduation are also on;
    - **More conservative**: turn self-learning off or raise the thresholds in ⑤;
    - **Faster**: lower the thresholds; click **Trust** on a project-stat row, or add trust roots / project trust in ⑥.
@@ -202,11 +202,11 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 
 ### Settings tab
 
-The approval view embeds the full Auto approval settings (the same configuration as the Settings page):
+The approval view embeds the full Auto approval settings; this is the **only entry point**:
 
 - sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / ⑤ Learning & sedimentation / ⑥ Rule library;
 - click to scroll to the card; changes apply hot without leaving the view;
-- the Settings → Auto approval entry remains as a second entry point.
+- the DSH global Settings page no longer duplicates the Auto approval entry; configure everything from the Approval tab.
 
 Seven configuration cards:
 
