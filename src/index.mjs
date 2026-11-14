@@ -2056,12 +2056,15 @@ export default {
       '你是操作意图一致性判断器。用户已人工批准过一些操作（同一工具、同一沙箱模式的例行操作），现在要判断一个新请求是否属于同类。',
       '',
       '你将收到：',
-      '- 用户已批准的操作样本（每个样本包含操作背景和目的）',
-      '- 一个新操作的背景和目的',
+      '- 用户已批准的操作样本（包含操作背景、目的和真实参数）',
+      '- 一个新操作的背景、目的和真实参数',
       '',
       '判断规则：',
-      '- SAME：新操作与某个样本属于同类操作——操作对象（同一文件/目录/项目/配置/系统）或目的（同一类例行维护、同一次任务的延续）一致或高度相似',
-      '- DIFFERENT：新操作的操作对象或目的与所有样本明显不同（不同文件/不同系统/不同性质的操作）',
+      '- 先比较工具：工具不同 → DIFFERENT。',
+      '- 如果工具是 bash：必须 program 相同（git、npm、gh 等），否则 DIFFERENT；再比较子命令和关键参数。',
+      '- 不能只因为操作理由（justification）措辞相似就判 SAME；理由只是辅助，真实参数才是主体。',
+      '- SAME：新操作与某个样本属于同类操作——操作对象（同一文件/目录/项目/配置/系统）或目的（同一类例行维护、同一次任务的延续）一致或高度相似。',
+      '- DIFFERENT：新操作的操作对象、程序或目的与所有样本明显不同（不同文件/不同系统/不同命令/不同性质的操作）。',
       '',
       '只输出一个词：SAME 或 DIFFERENT。拿不准时输出 DIFFERENT。不要输出任何其他内容。'
     ].join('\n')
@@ -2071,22 +2074,37 @@ export default {
      * 判断是否属于已确认的同类操作（语义级，不依赖关键词）。
      * @returns {Promise<{verdict:'same'|'different'}>}
      */
-    const verifySimilarity = async (toolName, mode, justification, samples, signal) => {
+    const verifySimilarity = async (toolName, mode, justification, samples, judgeArgs, commandCtx, signal) => {
+      // P1 硬约束：同一工具；bash 还必须同一 program。程序不同时不经模型，直接 DIFFERENT。
+      if (toolName === 'bash' && commandCtx && commandCtx.program) {
+        const samplePrograms = samples
+          .map((s) => String(s.commandPattern || '').split(/\s+/)[0])
+          .filter(Boolean)
+        if (samplePrograms.length > 0 && !samplePrograms.includes(commandCtx.program)) {
+          return { verdict: 'different', reason: 'program-mismatch' }
+        }
+      }
       const sampleLines = samples
-        .map((s, i) => `样本${i + 1}: ${s.ctx || s.fp || '(无描述)'}`)
+        .map((s, i) => {
+          const parts = [`样本${i + 1}: ${s.ctx || s.fp || '(无描述)'}`]
+          if (s.args) parts.push(`参数: ${s.args}`)
+          return parts.join('\n')
+        })
         .join('\n')
       const user = [
         `工具: ${toolName}`,
         `目标沙箱模式: ${mode || '(非越界审批)'}`,
+        toolName === 'bash' && commandCtx ? `本次命令 program: ${commandCtx.program}` : '',
         '',
         '【用户已批准的操作样本】',
         sampleLines || '（无样本）',
         '',
         '【本次新操作】',
         `操作理由: ${justification || '(无说明)'}`,
+        judgeArgs ? `真实参数:\n${judgeArgs}` : '',
         '',
         '请判断：新操作是否与某个已批准样本属于同类操作？输出 SAME 或 DIFFERENT。'
-      ].join('\n')
+      ].filter(function (x) { return x !== '' }).join('\n')
       const text = await callFlash(user, SIMILARITY_PROMPT, signal)
       const trimmed = text.trim().toUpperCase()
       if (trimmed.includes('DIFFERENT')) return { verdict: 'different' }
@@ -2152,20 +2170,21 @@ export default {
     }
 
     /** 同类验证（带超时重试）：失败 → { verdict:'different', failed:true }（fail-safe：验证失败按不同类处理） */
-    const verifySimilarityWithRetry = async (toolName, mode, justification, samples) => {
-      const result = await withRetry((signal) => verifySimilarity(toolName, mode, justification, samples, signal), '同类验证')
+    const verifySimilarityWithRetry = async (toolName, mode, justification, samples, judgeArgs, commandCtx) => {
+      const result = await withRetry((signal) => verifySimilarity(toolName, mode, justification, samples, judgeArgs, commandCtx, signal), '同类验证')
       if (result.failed) return { verdict: 'different', failed: true }
       return result
     }
 
-    /** 记录一次人工批准的样本（{fp, ctx}）；命令意图存在时用它作为指纹；同指纹覆盖旧样本 */
-    const recordSample = (key, justification, cmd) => {
+    /** 记录一次人工批准的样本（{fp, ctx, args}）；命令意图存在时用它作为指纹；同指纹覆盖旧样本 */
+    const recordSample = (key, justification, cmd, argsText) => {
       const fp = cmd && cmd.eligible ? cmd.pattern : extractOperationFingerprint(justification)
       const prefix = cmd && cmd.eligible ? `命令：${cmd.pattern}（目录：${cmd.cwd}）；` : ''
       const ctx = String(prefix + String(justification || '')).slice(0, 200)
       const list = (learning.history[key] || []).slice()
       const idx = fp ? list.findIndex((s) => s.fp === fp) : -1
       const item = { fp, ctx }
+      if (argsText) item.args = String(argsText).slice(0, 600)
       if (cmd && cmd.eligible) {
         item.commandPattern = cmd.pattern
         item.cwd = cmd.cwd
@@ -2333,7 +2352,7 @@ export default {
         if (config.semanticReuse === true && confirmed >= 1 && confirmed < threshold) {
           const samples = learning.history[key] || []
           if (samples.length > 0) {
-            const sim = await verifySimilarityWithRetry(toolName, mode, justification, samples)
+            const sim = await verifySimilarityWithRetry(toolName, mode, justification, samples, judgeArgs, commandCtx)
             if (sim.verdict === 'same') {
               if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'semantic')
               audit(`SEMANTIC ${toolName} mode=${mode || 'none'} category=${cat} 一次批准后语义判同类 → 放行 | ${reason.slice(0, 100)}`)
@@ -2371,7 +2390,7 @@ export default {
           if (samples.length > 0) {
             // 指纹未命中 → flash 第三方同类验证：把本次操作背景 + 用户确认样本给 flash，
             // 语义判断是否属于已确认的同类操作（不依赖关键词）
-            const sim = await verifySimilarityWithRetry(toolName, mode, justification, samples)
+            const sim = await verifySimilarityWithRetry(toolName, mode, justification, samples, judgeArgs, commandCtx)
             if (sim.verdict === 'same') {
               if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'flash-same')
               // 判同类 → 自动放行；有指纹则沉淀规则（无指纹不沉淀，保留样本供后续验证）
@@ -2405,7 +2424,7 @@ export default {
           audit(`OUTCOME ${key} outcome=${outcome} | ${reason.slice(0, 80)}`)
           if (outcome === 'allowed-once' && learning.enabled) {
             // 批准 → 记录本次操作样本（背景+指纹）；计数保持阈值位
-            recordSample(key, justification, commandCtx)
+            recordSample(key, justification, commandCtx, judgeArgs)
             saveJson(LEARNING_PATH, learning)
             recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd, commandPattern })
           } else if (outcome === 'rejected') {
@@ -2442,7 +2461,7 @@ export default {
         if (outcome === 'allowed-once' && learning.enabled) {
           // 批准 → 确认计数 +1，并记录本次操作样本（未达阈值，下次同类仍人工确认）
           learning.stats[key] = confirmed + 1
-          recordSample(key, justification, commandCtx)
+          recordSample(key, justification, commandCtx, judgeArgs)
           saveJson(LEARNING_PATH, learning)
           recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed + 1, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd, commandPattern })
         } else if (outcome === 'rejected') {
