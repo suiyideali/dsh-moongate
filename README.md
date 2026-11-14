@@ -212,11 +212,11 @@ pnpm install
 
 审批页内直接嵌入完整的「自动审批」设置，和设置页是同一套配置：
 
-- 顶部粘性子导航：初始化 / 判定管道 / ① DENY / ② 白名单 / ③ 永久人工 / ④ Flash / ⑤ 学习 / ⑥ 自动学习 / ⑦ 规则库；
+- 顶部粘性子导航：初始化 / 判定管道 / ① DENY / ② 白名单 / ③ 永久人工 / ④ Flash / Shadow / ⑤ 学习 / ⑥ 自动学习 / ⑦ 规则库；
 - 点击平滑滚动到对应卡片，修改热生效，不必来回切换页面；
 - 设置页（设置 → 自动审批）仍保留同一入口。
 
-七张配置卡片：
+八张配置卡片：
 
 | 卡片 | 内容 |
 | --- | --- |
@@ -224,6 +224,7 @@ pnpm install
 | ② 白名单 | 自动放行的规则（来源/命中次数） |
 | ③ 永久人工 | 拒绝升级的规则 |
 | ④ Flash 判定 | `riskyThreshold`、`judgeTimeoutMs` |
+| Shadow | 观察模式开关；候选只记录不自动放行 |
 | ⑤ 学习沉淀 | 正在学习的 key、确认进度，可终止 |
 | ⑥ 自动学习 | 会话记忆、晋升、毕业、自学习、两段式开关与参数 |
 | ⑦ 规则库 | 四类规则统一管理 + 规则体检 + 导出 |
@@ -286,6 +287,7 @@ flowchart TD
 | `selfLearnSessions` | 2 | 自学习所需会话数 |
 | `selfLearnMaxRules` | 50 | 自学习规则上限 |
 | `twoStage` | false | 两段式判定开关 |
+| `shadow` | false | Shadow 观察模式；候选只记录不自动放行 |
 | `stage1Provider` / `stage1Model` | 空 | 快筛模型（留空用默认） |
 | `denyEscalateConsecutive` | 3 | 连续拒绝升级阈值 |
 | `denyEscalateTotal` | 20 | 累计拒绝升级阈值 |

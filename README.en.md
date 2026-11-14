@@ -195,11 +195,11 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 
 The approval view embeds the full Auto approval settings (the same configuration as the Settings page):
 
-- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / ⑤ Learning / ⑥ Auto learning / ⑦ Rule library;
+- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / ⑤ Learning / ⑥ Auto learning / ⑦ Rule library;
 - click to scroll to the card; changes apply hot without leaving the view;
 - the Settings → Auto approval entry remains as a second entry point.
 
-Seven configuration cards:
+Eight configuration cards:
 
 | Card | Content |
 | --- | --- |
@@ -207,6 +207,7 @@ Seven configuration cards:
 | ② Allowlist | Auto-approve rules with source and hit count |
 | ③ denyRules | Permanently manual rules |
 | ④ Flash | `riskyThreshold`, `judgeTimeoutMs` |
+| Shadow | Observation toggle; candidates are recorded, not auto-approved |
 | ⑤ Learning | Keys currently learning and their progress |
 | ⑥ Auto learning | Session memory, promotion, graduation, self-learning, two-stage |
 | ⑦ Rule library | Unified rule management + health check + export |
@@ -269,6 +270,7 @@ Everything lives in `~/.dsh/auto-approve/`; edits to `allowlist.json` are hot-re
 | `selfLearnSessions` | 2 | Sessions for self-learning |
 | `selfLearnMaxRules` | 50 | Self-learned rule cap |
 | `twoStage` | false | Two-stage judging switch |
+| `shadow` | false | Shadow observation mode; candidates are recorded but not auto-approved |
 | `stage1Provider` / `stage1Model` | empty | Fast-screen model |
 | `denyEscalateConsecutive` | 3 | Consecutive rejection escalation |
 | `denyEscalateTotal` | 20 | Total rejection escalation |
