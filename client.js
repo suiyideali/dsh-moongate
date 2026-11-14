@@ -328,6 +328,7 @@ window.__ModuleLoader__.load({
       learned: '沉淀规则',
       fpHit: '已确认操作',
       'flash-same': 'Flash 同类验证',
+      readonly: T('只读命令','Read-only command'),
       'shadow-candidate': T('Shadow 候选','Shadow candidates')
     }
     const VERDICT_NEUTRAL = new Set(['rule', 'learned', 'fpHit', 'flash-same'])
@@ -339,7 +340,8 @@ window.__ModuleLoader__.load({
       learned: '沉淀规则',
       fpHit: '已确认操作',
       'flash-same': '同类验证',
-      semantic: '语义复用'
+      semantic: '语义复用',
+      readonly: T('只读命令','Read-only command')
     }
     const HARD_CATEGORIES = new Set(['deletion', 'credential', 'remote', 'system', 'bulk'])
 

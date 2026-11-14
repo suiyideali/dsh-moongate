@@ -371,6 +371,8 @@ function recordApprovalEvent(sessionId, toolName, mode, reason, justification, v
     verdict: String(verdict || 'auto'),
     files: extractFiles(justification)
   }
+  // 只读命令没有写文件，不生成改动前快照（即使 reason 里出现了路径）
+  if (o.readOnly) ev.files = []
   if (o.kind) ev.kind = o.kind
   if (o.learningCount !== undefined) ev.learningCount = o.learningCount
   if (o.threshold !== undefined) ev.threshold = o.threshold
@@ -1164,6 +1166,12 @@ const SAFE_GH_GROUPS = new Map([
   ['run', new Set(['view', 'list'])],
 ])
 const SAFE_PM_SCRIPTS = new Set(['test', 'lint', 'typecheck', 'check', 'format:check', 'test:unit', 'test:integration'])
+// 只读命令白名单：仅用于“零点击快速路径”，不做学习沉淀。
+// 这些命令要么只读文件，要么只查询系统状态；路径必须落在本次命令的 cwd 内。
+const READ_ONLY_PROGRAMS = new Set([
+  'ls', 'pwd', 'echo', 'printf', 'cat', 'head', 'tail', 'wc', 'grep', 'rg',
+  'sed', 'stat', 'file', 'du', 'df', 'ps', 'date', 'which', 'type', 'sort', 'jq'
+])
 
 function shellTokens(text) {
   const out = []
@@ -1204,6 +1212,20 @@ function isPathWithin(cwd, prefix) {
   return a === b || a.startsWith(b === '/' ? '/' : b + '/')
 }
 
+// 只读命令的路径必须全部落在命令 cwd 内；`~`、绝对路径和 `../` 越界一律不放行。
+// 注意：这里只做保守检查，命中不确定的参数就返回 false（宁可多问一次）。
+function localReadOnlyArgsWithin(rest, cwdScope) {
+  for (const token of rest) {
+    if (!token || token.startsWith('-')) continue
+    // `..` / `../x` 即使没有绝对路径也越界
+    if (token === '..' || token.startsWith('../')) return false
+    if (!/[\/~]/.test(token)) continue
+    const abs = resolveAbsPath(token, cwdScope)
+    if (!isPathWithin(abs, cwdScope)) return false
+  }
+  return true
+}
+
 /**
  * 从真实 bash 参数提取可学习命令意图。
  * 返回 { eligible, pattern, cwd, program }；不安全的命令返回 null。
@@ -1225,8 +1247,9 @@ function commandIntent(toolName, argsText, sessionCwd) {
     text = cd[4].trim()
   }
   if (!cwd) return null
-  // 多命令 / 管道 / 重定向 / 命令替换：不自动学习（Flash 仍可判 SAFE，但不会沉淀）
-  if (/[;&|><`]/.test(text) || /\$\(/.test(text)) return null
+  // 多命令 / 管道 / 重定向 / 命令替换 / 变量展开：不自动学习。
+  // `$` 还会让路径检查失真（如 "$HOME/.ssh"），只读快速路径也一并拒绝。
+  if (/[;&|><`]/.test(text) || /\$/.test(text)) return null
   const tokens = shellTokens(text)
   if (!tokens || tokens.length === 0) return null
   // 去掉前置环境变量赋值
@@ -1244,6 +1267,8 @@ function commandIntent(toolName, argsText, sessionCwd) {
   if (program === 'git') {
     const sub = String(rest[0] || '').toLowerCase()
     if (!SAFE_GIT_SUBS.has(sub)) return null
+    // -C / --git-dir / --work-tree 会把操作指向 cwd 之外；--no-index 可读任意文件。
+    if (hasFlag(/^(?:-C|--git-dir|--work-tree|--no-index)(?:=.*)?$/)) return null
     if (['branch', 'tag'].includes(sub) && hasFlag(/^(?:-[dDmMf]|--delete|--move|--force|--edit)$/)) return null
     // `git branch <name>` 会创建分支；只允许纯列表/查询参数（不接收任何位置参数）
     if (sub === 'branch' && rest.length > 1 && rest.slice(1).some((t) => !t.startsWith('-'))) return null
@@ -1252,7 +1277,7 @@ function commandIntent(toolName, argsText, sessionCwd) {
     if (sub === 'stash' && !['list', 'show'].includes(String(rest[1] || '').toLowerCase())) return null
     if (sub === 'worktree' && String(rest[1] || '').toLowerCase() !== 'list') return null
     if (sub === 'tag' && rest.length > 1 && !hasFlag(/^(?:-l|--list)$/)) return null
-    return { eligible: true, pattern: `git ${sub}`, cwd: cwdScope, program: 'git' }
+    return { eligible: true, readOnly: true, pattern: `git ${sub}`, cwd: cwdScope, program: 'git' }
   }
 
   if (program === 'gh') {
@@ -1261,22 +1286,35 @@ function commandIntent(toolName, argsText, sessionCwd) {
     const allowed = SAFE_GH_GROUPS.get(group)
     if (!allowed || !allowed.has(sub)) return null
     if (group === 'pr' && sub === 'status') return null // 旧版 gh，避免不确定行为
-    return { eligible: true, pattern: `gh ${group} ${sub}`, cwd: cwdScope, program: 'gh' }
+    return { eligible: true, readOnly: true, pattern: `gh ${group} ${sub}`, cwd: cwdScope, program: 'gh' }
   }
 
   if (['npm', 'pnpm', 'yarn', 'bun'].includes(program)) {
     const sub = String(rest[0] || '').toLowerCase()
-    if (sub === 'test') return { eligible: true, pattern: `${program} test`, cwd: cwdScope, program }
+    if (sub === 'test') return { eligible: true, readOnly: false, pattern: `${program} test`, cwd: cwdScope, program }
     if (sub === 'run') {
       const script = String(rest[1] || '').toLowerCase()
       if (!SAFE_PM_SCRIPTS.has(script)) return null
-      return { eligible: true, pattern: `${program} run ${script}`, cwd: cwdScope, program }
+      return { eligible: true, readOnly: false, pattern: `${program} run ${script}`, cwd: cwdScope, program }
     }
     // pnpm/yarn 允许直接写脚本名（pnpm lint）
     if (['pnpm', 'yarn'].includes(program) && SAFE_PM_SCRIPTS.has(sub)) {
-      return { eligible: true, pattern: `${program} ${sub}`, cwd: cwdScope, program }
+      return { eligible: true, readOnly: false, pattern: `${program} ${sub}`, cwd: cwdScope, program }
     }
     return null
+  }
+
+  // 本地只读命令：仅允许确定不会写文件的程序/参数，且路径必须在 cwd 内。
+  if (READ_ONLY_PROGRAMS.has(program)) {
+    if (program === 'sed') {
+      if (!hasFlag(/^-(?:n|quiet|silent)/)) return null
+      if (hasFlag(/^-(?:i|in-place)|--in-place(?:=.*)?$/)) return null
+      const script = rest.find((t) => !t.startsWith('-'))
+      if (script && /[we]/.test(script)) return null
+    }
+    if (program === 'sort' && hasFlag(/^-(?:o|output)|--output(?:=.*)?$/)) return null
+    if (!localReadOnlyArgsWithin(rest, cwdScope)) return null
+    return { eligible: true, readOnly: true, pattern: `${program} read`, cwd: cwdScope, program }
   }
 
   return null
@@ -2327,6 +2365,24 @@ export default {
         if (looksDeny(toolName + ' ' + reason)) {
           audit(`DENY    ${toolName} mode=${mode || 'none'} | ${reason.slice(0, 160)}`)
           return forwardToHuman(sessionId, toolName, mode, reason, justification, '', 'deny')
+        }
+
+        // 显式“永久人工”规则优先于只读快速路径（Deny 永远不能被便捷路径绕过）。
+        // 这里先用无 category 的匹配覆盖通用/命令 deny 规则；带 category 的规则仍在 4d 复核。
+        if (matchRule(config.denyRules, toolName, mode, null, justification, commandCtx)) {
+          audit(`DENYRULE ${toolName} mode=${mode || 'none'} → 人工`)
+          return forwardToHuman(sessionId, toolName, mode, reason, justification, '', 'deny-rule')
+        }
+
+        // 2. 严格只读快速路径：首次安装即可用，不需要规则/学习/人工确认。
+        // 仅限白名单程序、无管道/重定向/命令替换、路径在本次 cwd 内；不写规则/学习/快照。
+        if (commandCtx && commandCtx.readOnly) {
+          if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'readonly')
+          audit(`READONLY ${toolName} mode=${mode || 'none'} cmd=${commandCtx.pattern} cwd=${commandCtx.cwd}`)
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'readonly', {
+            path: 'readonly', args: judgeArgs, cwd: sessionCwd, commandPattern, readOnly: true
+          })
+          return 'allowed-once'
         }
 
         // 2a. 可写根目录信任：一次性配置，范围内的操作直接放行（零点击）

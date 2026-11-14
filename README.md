@@ -67,6 +67,7 @@ DeepSeek Harness 默认会在命令和文件修改前询问你。问题是：真
 | **Flash 风险判定** | `DENY → 信任目录 / 会话记忆 / 白名单 → Flash（SAFE / 硬类别 / 中立）→ 学习` |
 | **真实 tool call 判定** | 通过 `callId` 从 session 事件取实际参数（脱敏、截断 4 KB），不只看模型写的理由 |
 | **确认制学习** | 中立操作人工确认到阈值后自动放行；指纹命中 / Flash 语义同类验证 |
+| **只读命令快速路径** | 首次安装即生效：严格只读的 `git status` / `gh pr view` / `ls` / `cat` / `grep` / `sed -n` 等无需确认；仅限白名单程序、无管道/重定向、路径在本次 cwd 内，不写规则/学习/快照 |
 | **命令意图学习** | 从真实 bash 参数提炼安全命令意图（`git status`、`npm test`、`gh pr view` 等）并绑定 cwd；`npm test` 与 `npm publish` 不再共享同一个学习 key，无法识别的命令不进入学习 |
 | **语义近似复用** | 一次人工批准后，同类中立操作由 Flash 做 SAME/DIFFERENT 验证；比较真实参数并要求同一 program（bash）或同一工具；仅放行当前操作，不沉淀规则；默认关 |
 | **记住 / 取消记住** | 审批页单行操作；有路径用路径指纹，无路径用整句描述精确匹配；可随时撤销 |
@@ -91,6 +92,8 @@ DeepSeek Harness 默认会在命令和文件修改前询问你。问题是：真
 > **Desktop 用户注意**：DSH Desktop 的 `desktop` profile 由应用托管，`dsh plugin --profile desktop ...` 会被拒绝（`profile "desktop" is managed exclusively by the Electron application`）。请在应用的插件管理界面安装/卸载。下面 CLI 示例中的 `<profile>` 指你自己用 CLI 管理的 profile（通常是 `web`），不要照抄成 `desktop`。
 >
 > **首选安装方式：在 DSH 应用内安装。** 不需要命令行；Desktop 用户直接从方式一开始。
+>
+> **首次使用无需配置**：安装并启用 `auto-approve` 预设后，严格只读命令（`git status`、`gh pr view`、`ls`、`cat`、`grep`、`sed -n` 等）会直接放行；写文件、跨工作区、网络/推送等操作仍走人工，避免一开始就陷入大量确认。
 
 ### 方式一：在 DSH 应用内安装（推荐，Desktop 用这个）
 
@@ -355,7 +358,8 @@ CI（`.github/workflows/ci.yml`）会执行：
 - [x] 按项目/目录统计（全部会话 + 未知目录兜底，趋势后续增强）；
 - [x] i18n（跟随浏览器语言，主要界面中英切换）；
 - [x] 命令意图学习（安全 bash 命令 + cwd 独立计数与规则，无法识别的命令不学习）；
-- [x] Shadow 候选分组与规则建议（同命令/目录重复候选聚合，手动创建规则）。
+- [x] Shadow 候选分组与规则建议（同命令/目录重复候选聚合，手动创建规则）；
+- [x] 首次使用只读命令快速路径（严格只读、cwd 内、无管道/重定向，无需配置）。
 
 ## FAQ
 

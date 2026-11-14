@@ -121,3 +121,10 @@
 - 同命令同目录的两次候选聚合为一组，建议规则带 `commandPattern` 与 `cwdPrefix`。
 - 只有点击按钮才调用规则 API；端点本身无副作用。
 - `npm test` 覆盖分组、计数和建议字段。
+
+## 9. 首次使用：只读命令快速路径
+
+- 新增 `READ_ONLY_PROGRAMS` 白名单：`ls/pwd/echo/printf/cat/head/tail/wc/grep/rg/sed/stat/file/du/df/ps/date/which/type/sort/jq`。
+- `commandIntent` 对 `git`/`gh` 的只读子命令返回 `readOnly:true`；本地白名单命令要求有效 cwd、路径落在 cwd 内、无管道/重定向/命令替换；`sed` 必须 `-n` 且无 `-i`，`sort` 不得 `-o`。
+- 审批处理器在 DENY 之后、信任/规则/Flash 之前处理 `commandCtx.readOnly`：直接自动放行，事件 `verdict/path = readonly`，不写规则、学习、快照；Shadow 开启时只记录 `wouldPath:'readonly'` 候选。
+- 验收：`git status --short` 首次即自动放行；`sed -i`、`cat /etc/passwd` 等仍转人工；`npm publish` 不受影响。

@@ -22,7 +22,7 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
 assert.ok(client.includes('function T(zh, en)'), 'client has i18n helper')
-for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit']) {
+for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
 
@@ -227,6 +227,69 @@ const feedToolCall = (sid, callId, command) => sessionEvent(
   { id: sid },
   { type: 'tool/call', data: { callId, name: 'bash', arguments: JSON.stringify({ command }) } }
 )
+
+// 只读快速路径：git status 这类严格只读命令首次安装即可自动放行；sed -i / 越界路径仍转人工。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  riskyThreshold: 1,
+  semanticReuse: false,
+  shadow: false,
+  sessionMemory: false,
+  allowRules: []
+}), 'utf8')
+flashReply = 'RISKY:neutral'
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-1', 'git status --short')
+const readonlyOut = await approval(bashRequest('readonly-test', 'call-readonly-1', 'git status --short'), nextAllowed)
+assert.equal(readonlyOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'strict read-only command auto-allows without human')
+const readonlyAuto = readEvents().filter((ev) => ev.kind === 'auto' && ev.path === 'readonly').pop()
+assert.ok(readonlyAuto, 'read-only auto event recorded')
+assert.equal(readonlyAuto.verdict, 'readonly')
+assert.equal(readonlyAuto.cwd, cwd)
+assert.deepEqual(readonlyAuto.files, [], 'read-only event does not snapshot files')
+
+// 显式永久人工规则优先于只读快速路径。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  shadow: false,
+  denyRules: [{ tool: 'bash', commandPattern: 'git status' }],
+  allowRules: []
+}), 'utf8')
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-deny', 'git status --short')
+const readonlyDenyOut = await approval(bashRequest('readonly-test', 'call-readonly-deny', 'git status --short'), nextAllowed)
+assert.equal(readonlyDenyOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'explicit deny rule beats read-only fast path')
+
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  shadow: false,
+  allowRules: []
+}), 'utf8')
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-2', 'sed -i s/a/b/ note.txt')
+const sedOut = await approval(bashRequest('readonly-test', 'call-readonly-2', 'sed -i s/a/b/ note.txt'), nextAllowed)
+assert.equal(sedOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'sed -i is not read-only and asks human')
+
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-3', 'cat /etc/passwd')
+const outsideOut = await approval(bashRequest('readonly-test', 'call-readonly-3', 'cat /etc/passwd'), nextAllowed)
+assert.equal(outsideOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'read outside cwd asks human')
+
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-4', 'ls ..')
+const parentOut = await approval(bashRequest('readonly-test', 'call-readonly-4', 'ls ..'), nextAllowed)
+assert.equal(parentOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'parent directory listing asks human')
+
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-5', 'cat $HOME/.ssh/id_rsa')
+const varOut = await approval(bashRequest('readonly-test', 'call-readonly-5', 'cat $HOME/.ssh/id_rsa'), nextAllowed)
+assert.equal(varOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'shell variable expansion asks human')
 
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,
