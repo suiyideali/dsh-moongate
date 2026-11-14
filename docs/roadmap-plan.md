@@ -28,9 +28,17 @@
 
 ## 2. 规则库行内编辑
 
-- 为每条 allow/deny 规则生成稳定 ID（不持久化也可，至少按规范化元组计算）。
+- 为每条 allow/deny 规则生成稳定 ID（按 `tool|mode|category|contains|signature` 规范化元组计算）。
 - API 增加 `set` 操作；校验工具名、mode、category、contains，拒绝空规则和过宽规则。
 - UI 支持行内编辑、保存/取消、错误提示；安全类别不允许通过 UI 改成“无条件放行”。
+- 签名规则（学习生成）不在行内编辑范围，避免破坏签名匹配；需要时删除后重建。
+
+**验收**
+
+- 快照中每条 allow/deny 规则都有稳定 `id`；`set` 能按 id 更新，未知 id 返回错误。
+- 空规则、非法 mode/category、危险的无条件 `danger-full-access` 规则被拒绝；签名不可修改。
+- UI 编辑保存后即时热更新，失败时保留编辑内容并显示原因。
+- `npm test` 覆盖快照 id、set 成功、危险编辑拒绝。
 
 ## 3. 按项目/目录统计
 

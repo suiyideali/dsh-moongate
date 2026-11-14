@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync, readdi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-approval-gate-test-'))
 
@@ -20,7 +21,7 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
-for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选']) {
+for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
 
@@ -39,6 +40,7 @@ writeFileSync(allowlistPath, JSON.stringify({
 
 let flashReply = 'SAFE'
 const handlers = new Map()
+const routes = new Map()
 const ctx = {
   llm: {
     stream: async function* () {
@@ -51,11 +53,34 @@ const ctx = {
   on: (name, fn) => { handlers.set(name, fn); return () => {} },
   effect: (fn) => { const dispose = fn(); return () => { if (typeof dispose === 'function') dispose() } },
   timeout: () => new Promise(() => {}),
-  webServer: { register: () => () => {} },
+  webServer: { register: (spec) => { routes.set(spec.path, spec.handler); return () => {} } },
 }
 plugin.apply(ctx)
 const approval = handlers.get('approval/request')
 assert.equal(typeof approval, 'function', 'approval handler registered')
+
+// 调规则 API：用最小 req/res 模拟 WebServer，验证行内编辑走真实 HTTP 路径。
+const callApi = async (path, method, body) => {
+  const handler = routes.get(path)
+  assert.equal(typeof handler, 'function', 'route registered: ' + path)
+  const req = new EventEmitter()
+  req.method = method
+  req.url = path
+  if (body !== undefined) {
+    req.on('data', () => {})
+    process.nextTick(() => {
+      req.emit('data', Buffer.from(JSON.stringify(body)))
+      req.emit('end')
+    })
+  } else {
+    process.nextTick(() => req.emit('end'))
+  }
+  let status = 0
+  let text = ''
+  const res = { writeHead: (code) => { status = code }, end: (chunk) => { text = String(chunk || '') } }
+  await handler(req, res)
+  return { status, text, json: text ? JSON.parse(text) : null }
+}
 
 let nextCalls = 0
 const nextAllowed = async () => { nextCalls += 1; return 'allowed-once' }
@@ -126,6 +151,24 @@ assert.equal(learnedCandidate.wouldPath, 'learned', 'learned candidate path')
 assert.equal(learnedCandidate.cwd, cwd, 'learned candidate records cwd')
 assert.equal(learnedEvents.filter((ev) => ev.kind === 'auto').length, autoBeforeFlash, 'learned shadow writes no auto event')
 assert.equal(JSON.parse(readFileSync(allowlistPath, 'utf8')).allowRules[0].hitCount || 0, 0, 'learned shadow does not touch hit count')
+
+// 行内编辑：快照带稳定 id；set 可更新描述；危险的 danger-full-access 无条件规则被拒绝。
+const rulesRes = await callApi('/api/auto-approve/rules', 'GET')
+assert.equal(rulesRes.status, 200)
+const editable = rulesRes.json.config.allowRules.find((rule) => rule.id)
+assert.ok(editable, 'rules snapshot exposes stable id')
+const edited = await callApi('/api/auto-approve/rules', 'POST', {
+  op: 'set', kind: 'allowRules', value: { id: editable.id, rule: { description: 'inline edit test' } }
+})
+assert.equal(edited.status, 200, 'inline rule edit accepted')
+assert.equal(edited.json.ok, true)
+const unsafe = await callApi('/api/auto-approve/rules', 'POST', {
+  op: 'set', kind: 'allowRules', value: { id: editable.id, rule: { mode: 'danger-full-access', tool: '', contains: '' } }
+})
+assert.equal(unsafe.status, 400, 'unsafe rule edit rejected')
+assert.match(unsafe.json.error, /danger-full-access/, 'unsafe edit explains danger-full-access constraint')
+const afterEdit = await callApi('/api/auto-approve/rules', 'GET')
+assert.equal(afterEdit.json.config.allowRules.find((rule) => rule.id === editable.id).description, 'inline edit test', 'inline edit persisted')
 
 const patchPath = new URL('../patches/dsh-approval-gate@0.5.0.patch', import.meta.url)
 assert.ok(existsSync(patchPath), 'fork patch present')
