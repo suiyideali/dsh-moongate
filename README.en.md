@@ -76,6 +76,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Two-stage judging** | Fast `ALLOW/REVIEW` screen + deep re-check; off by default |
 | **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots |
 | **Approval dashboard** | Stat cards, distribution bar, 7-day trend, top tools, per-project aggregation, filters/search, date-grouped timeline |
+| **UI language** | Follows the browser language and switches between Chinese and English (records, settings, notice strip and main errors) |
 
 ## Install
 
@@ -313,7 +314,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 - [ ] Semantic reuse (generalize from a single approval);
 - [x] Shadow mode: record "would auto-approve" candidates before enabling;
 - [x] Per-project stats (all sessions, unknown-directory fallback);
-- [ ] i18n for UI copy.
+- [x] i18n (follows the browser language; main UI in Chinese/English).
 
 ## FAQ
 
