@@ -1,7 +1,7 @@
 // Smoke tests for the dsh-approval-gate fork.
 // Runs without DSH: uses a temporary DSH_HOME so the plugin's top-level
 // config initialization cannot touch the real profile.
-import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, appendFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, appendFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
@@ -89,6 +89,13 @@ const callApi = async (path, method, body) => {
 
 let nextCalls = 0
 const nextAllowed = async () => { nextCalls += 1; return 'allowed-once' }
+const expectManualBash = async (sid, callId, command, label) => {
+  feedToolCall(sid, callId, command)
+  nextCalls = 0
+  const out = await approval(bashRequest(sid, callId, command), nextAllowed)
+  assert.equal(out, 'allowed-once')
+  assert.equal(nextCalls, 1, label)
+}
 const request = {
   agent: { session: { id: 'shadow-test', cwd } },
   toolName: 'write',
@@ -257,7 +264,7 @@ assert.deepEqual(readonlyAuto.files, [], 'read-only event does not snapshot file
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,
   shadow: false,
-  denyRules: [{ tool: 'bash', commandPattern: 'git status' }],
+  denyRules: [{ tool: 'bash', category: 'neutral', commandPattern: 'git status' }],
   allowRules: []
 }), 'utf8')
 nextCalls = 0
@@ -295,11 +302,25 @@ const varOut = await approval(bashRequest('readonly-test', 'call-readonly-5', 'c
 assert.equal(varOut, 'allowed-once')
 assert.equal(nextCalls, 1, 'shell variable expansion asks human')
 
+// 只读解析器绕过：执行外部程序 / 原地写 / 外部 config；都必须转人工。
+await expectManualBash('readonly-test', 'call-readonly-pre', 'rg --pre=/tmp/evil foo', 'rg --pre must ask human')
+await expectManualBash('readonly-test', 'call-readonly-pager', 'git grep -O --open-files-in-pager="touch /tmp/x" foo', 'git grep pager must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sort', 'sort --compress-program=/tmp/evil f', 'sort compress-program must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sed', 'sed -ni s/a/b/ f', 'combined sed -ni must ask human')
+await expectManualBash('readonly-test', 'call-readonly-cfg', 'git config -e', 'git config -e must ask human')
+await expectManualBash('readonly-test', 'call-readonly-remote', 'git remote set-branches origin main', 'git remote set-branches must ask human')
+await expectManualBash('readonly-test', 'call-readonly-upstream', 'git branch --set-upstream-to=origin/main', 'git branch set-upstream must ask human')
+await expectManualBash('readonly-test', 'call-readonly-cd', 'cd /etc && cat passwd', 'cd outside session cwd must ask human')
+
 // 项目信任：只放行项目内的 edit/write 和已识别 test/build；push 仍转人工。
 const projectRoot = join(process.env.DSH_HOME, 'trusted-project')
 mkdirSync(projectRoot, { recursive: true })
 const projectFile = join(projectRoot, 'a.js')
 writeFileSync(projectFile, 'const a = 1\n', 'utf8')
+const outsideFile = join(process.env.DSH_HOME, 'outside-secret.txt')
+writeFileSync(outsideFile, 'secret\n', 'utf8')
+const projectLink = join(projectRoot, 'link.txt')
+symlinkSync(outsideFile, projectLink)
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,
   riskyThreshold: 1,
@@ -324,6 +345,17 @@ const projectEditOut = await approval({
 }, nextAllowed)
 assert.equal(projectEditOut, 'allowed-once')
 assert.equal(nextCalls, 0, 'project trust auto-allows edit inside root')
+
+feedToolCallTool('project-test', 'call-project-write', 'write', { path: projectFile, content: 'const a = 2\n' })
+nextCalls = 0
+const projectWriteOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'write',
+  callId: 'call-project-write',
+  reason: 'escalate sandbox to danger-full-access: write ' + projectFile,
+}, nextAllowed)
+assert.equal(projectWriteOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows write inside root')
 const projectEditEvent = readEvents().filter((ev) => ev.kind === 'auto' && ev.path === 'project-trust').pop()
 assert.ok(projectEditEvent, 'project trust auto event recorded')
 assert.equal(projectEditEvent.projectRoot, projectRoot, 'project trust records root')
@@ -340,22 +372,62 @@ const projectGoOut = await approval(bashRequest('project-test', 'call-project-go
 assert.equal(projectGoOut, 'allowed-once')
 assert.equal(nextCalls, 0, 'project trust auto-allows go test inside root')
 
+// 项目信任不能被 --prefix / 环境变量 / -vettool / symlink / 缺失参数绕过。
+await expectManualBash('project-test', 'call-project-prefix', 'cd ' + projectRoot + ' && npm test --prefix /tmp', 'project trust must reject npm --prefix')
+await expectManualBash('project-test', 'call-project-env', 'cd ' + projectRoot + ' && GOFLAGS=-toolexec=/tmp/evil go test ./...', 'project trust must reject leading env')
+await expectManualBash('project-test', 'call-project-vettool', 'cd ' + projectRoot + ' && go vet -vettool=/tmp/evil ./...', 'project trust must reject go -vettool')
+await expectManualBash('project-test', 'call-project-cd-out', 'cd /tmp && npm test', 'project trust must reject cwd outside root')
+
 nextCalls = 0
 feedToolCall('project-test', 'call-project-push', 'git push')
 const projectPushOut = await approval(bashRequest('project-test', 'call-project-push', 'git push'), nextAllowed)
 assert.equal(projectPushOut, 'allowed-once')
 assert.equal(nextCalls, 1, 'project trust does not auto-allow push')
 
+// symlink 越界、根外写入、缺失参数都必须转人工。
+feedToolCallTool('project-test', 'call-project-link', 'edit', { path: projectLink, old_string: 'secret', new_string: 'x' })
+nextCalls = 0
+const projectLinkOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'edit', callId: 'call-project-link',
+  reason: 'escalate sandbox to danger-full-access: write ' + projectLink,
+}, nextAllowed)
+assert.equal(projectLinkOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'project trust rejects symlink escape')
+
+feedToolCallTool('project-test', 'call-project-outside', 'write', { path: outsideFile, content: 'x' })
+nextCalls = 0
+const projectOutsideOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'write', callId: 'call-project-outside',
+  reason: 'escalate sandbox to danger-full-access: write ' + outsideFile,
+}, nextAllowed)
+assert.equal(projectOutsideOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'project trust rejects write outside root')
+
+feedToolCallTool('project-test', 'call-project-noargs', 'edit', {})
+nextCalls = 0
+const noargsTarget = join(projectRoot, 'noargs-unique-' + Date.now() + '.js')
+const projectNoArgsOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'edit', callId: 'call-project-noargs',
+  reason: 'escalate sandbox to danger-full-access: write ' + noargsTarget,
+}, nextAllowed)
+assert.equal(projectNoArgsOut, 'allowed-once')
+
+assert.equal(nextCalls, 1, 'project trust fails closed without args paths')
+
 const removeProject = await callApi('/api/auto-approve/rules', 'POST', { op: 'remove', kind: 'projectTrust', value: projectRoot })
 assert.equal(removeProject.status, 200)
 assert.equal(removeProject.json.ok, true)
-feedToolCallTool('project-test', 'call-project-edit-2', 'edit', { path: projectFile, old_string: '2', new_string: '3' })
+const afterRemoveTarget = join(projectRoot, 'after-remove-' + Date.now() + '.js')
+feedToolCallTool('project-test', 'call-project-edit-2', 'edit', { path: afterRemoveTarget, old_string: '2', new_string: '3' })
 nextCalls = 0
 const projectEditAgain = await approval({
   agent: { session: { id: 'project-test', cwd } },
   toolName: 'edit',
   callId: 'call-project-edit-2',
-  reason: 'escalate sandbox to danger-full-access: write ' + projectFile,
+  reason: 'escalate sandbox to danger-full-access: write ' + afterRemoveTarget,
 }, nextAllowed)
 assert.equal(projectEditAgain, 'allowed-once')
 assert.equal(nextCalls, 1, 'removed project trust asks human again')

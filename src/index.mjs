@@ -30,9 +30,9 @@
  *   $DSH_HOME/auto-approve/learning.json   学习状态（跨会话持久化）
  *   $DSH_HOME/auto-approve/audit.log       审计（追加式）
  */
-import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, readdirSync, statSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, readdirSync, statSync, rmSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, basename, dirname } from 'node:path'
 
 const NAME = 'dsh-moongate'  // 包/仓库更名；数据目录仍为 auto-approve 以兼容上游
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
@@ -686,6 +686,7 @@ function applyRuleOp(op, kind, value) {
       if (kind === 'projectTrust') {
         str = normalizeProjectRootPath(str)
         if (!str) return { ok: false, error: '项目信任必须是绝对路径，且不能是根目录或 home' }
+        if (!list.includes(str) && list.length >= 20) return { ok: false, error: '项目信任最多 20 个根目录' }
       }
       if (!list.includes(str)) {
         list.push(str)
@@ -1170,18 +1171,17 @@ function projectTrustHit(toolName, justification, argsText, commandCtx, sessionC
     .map(normalizeProjectRootPath).filter(Boolean)
   if (roots.length === 0) return null
   if (toolName === 'bash') {
-    if (!commandCtx || !commandCtx.eligible || !commandCtx.cwd) return null
-    for (const root of roots) if (isPathWithin(commandCtx.cwd, root)) return root
+    if (!commandCtx || !commandCtx.eligible || !commandCtx.trustedBuild || !commandCtx.cwd) return null
+    const realCwd = realPathForCheck(commandCtx.cwd)
+    for (const root of roots) if (isPathWithin(realCwd, realPathForCheck(root))) return root
     return null
   }
   if (toolName !== 'edit' && toolName !== 'write') return null
-  let paths = pathsFromToolArgs(argsText)
-  if (paths.length === 0) {
-    for (const m of String(justification || '').matchAll(/(?:~\/|\/)[\w@.\/-]+/g)) paths.push(m[0])
-  }
+  const paths = pathsFromToolArgs(argsText)
   if (paths.length === 0) return null
   for (const root of roots) {
-    if (paths.every((p) => isPathWithin(resolveAbsPath(p, sessionCwd), root))) return root
+    const realRoot = realPathForCheck(root)
+    if (paths.every((p) => isPathWithin(realPathForCheck(resolveAbsPath(p, sessionCwd)), realRoot))) return root
   }
   return null
 }
@@ -1219,7 +1219,7 @@ function parseReason(reason) {
 // ---- 命令意图（P0）：从真实 bash 参数提取「程序 + 子命令」，按 cwd 限定 ----
 // 只对白名单里的只读/例行命令生成可学习意图；其余命令返回 null，继续走原有
 // Flash / 人工路径，避免把 npm publish、rm、curl 之类误当成 npm test。
-const SAFE_GIT_SUBS = new Set(['status', 'diff', 'log', 'show', 'branch', 'remote', 'rev-parse', 'ls-files', 'blame', 'grep', 'stash', 'tag', 'config', 'worktree'])
+const SAFE_GIT_SUBS = new Set(['status', 'diff', 'log', 'show', 'branch', 'remote', 'rev-parse', 'ls-files', 'blame', 'grep', 'stash', 'tag', 'worktree'])
 const SAFE_GH_GROUPS = new Map([
   ['pr', new Set(['view', 'list', 'checks', 'diff', 'status'])],
   ['issue', new Set(['view', 'list', 'status'])],
@@ -1266,6 +1266,12 @@ function parseToolArgs(text) {
   } catch { return null }
 }
 
+function realPathForCheck(p) {
+  const abs = String(p || '')
+  try { return realpathSync(abs) } catch {}
+  try { return join(realpathSync(dirname(abs)), basename(abs)) } catch { return abs }
+}
+
 function isPathWithin(cwd, prefix) {
   const a = String(cwd || '').replace(/\/+$/, '') || '/'
   const b = String(prefix || '').replace(/\/+$/, '') || '/'
@@ -1276,8 +1282,14 @@ function isPathWithin(cwd, prefix) {
 // 只读命令的路径必须全部落在命令 cwd 内；`~`、绝对路径和 `../` 越界一律不放行。
 // 注意：这里只做保守检查，命中不确定的参数就返回 false（宁可多问一次）。
 function localReadOnlyArgsWithin(rest, cwdScope) {
-  for (const token of rest) {
-    if (!token || token.startsWith('-')) continue
+  for (let token of rest) {
+    if (!token) continue
+    if (token.startsWith('-')) {
+      const eq = token.indexOf('=')
+      if (eq < 0) continue
+      token = token.slice(eq + 1)
+      if (!token) continue
+    }
     // `..` / `../x` 即使没有绝对路径也越界
     if (token === '..' || token.startsWith('../')) return false
     if (!/[\/~]/.test(token)) continue
@@ -1313,16 +1325,15 @@ function commandIntent(toolName, argsText, sessionCwd) {
   if (/[;&|><`]/.test(text) || /\$/.test(text)) return null
   const tokens = shellTokens(text)
   if (!tokens || tokens.length === 0) return null
-  // 去掉前置环境变量赋值
-  while (tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) tokens.shift()
-  if (!tokens.length) return null
+  // 前置环境变量赋值（FOO=bar cmd）会让工具读取任意配置/执行器；不进入快速路径/学习。
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) return null
   const program = String(tokens[0]).split('/').pop().toLowerCase()
   if (!/^[a-z0-9_.+-]+$/.test(program)) return null
   const rest = tokens.slice(1)
   const flags = rest.filter((t) => t.startsWith('-'))
   const hasFlag = (re) => flags.some((f) => re.test(f))
-  // 任何可能把输出写到文件的旗标都不学习
-  if (hasFlag(/^(?:-o|--output(?:=.*)?|--ext-diff|--textconv|--write)$/)) return null
+  // 任何可能把输出写到文件 / 执行外部程序的旗标都不学习
+  if (hasFlag(/^(?:-o|--output(?:=.*)?|--ext-diff|--textconv|--write|--pre(?:=.*)?)$/)) return null
   const cwdScope = cwd.replace(/\/+$/, '') || '/'
 
   if (program === 'git') {
@@ -1330,11 +1341,14 @@ function commandIntent(toolName, argsText, sessionCwd) {
     if (!SAFE_GIT_SUBS.has(sub)) return null
     // -C / --git-dir / --work-tree 会把操作指向 cwd 之外；--no-index 可读任意文件。
     if (hasFlag(/^(?:-C|--git-dir|--work-tree|--no-index)(?:=.*)?$/)) return null
-    if (['branch', 'tag'].includes(sub) && hasFlag(/^(?:-[dDmMf]|--delete|--move|--force|--edit)$/)) return null
+    if (['branch', 'tag'].includes(sub) && hasFlag(/^(?:-[dDmMf]|--delete|--move|--force|--edit|--set-upstream-to(?:=.*)?|--unset-upstream|--edit-description|-u)$/)) return null
     // `git branch <name>` 会创建分支；只允许纯列表/查询参数（不接收任何位置参数）
     if (sub === 'branch' && rest.length > 1 && rest.slice(1).some((t) => !t.startsWith('-'))) return null
-    if (sub === 'remote' && rest[1] && /^(?:add|remove|rm|set-url|rename|prune|update)$/i.test(rest[1])) return null
-    if (sub === 'config' && rest.length > 2 && !hasFlag(/^(?:--get|--get-all|--list|-l)$/)) return null
+    if (sub === 'remote') {
+      const remoteSub = String(rest[1] || '').toLowerCase()
+      if (remoteSub && remoteSub !== '-v' && !['show', 'get-url'].includes(remoteSub)) return null
+    }
+    if (sub === 'grep' && hasFlag(/^(?:-O|--open-files-in-pager)(?:=.*)?$/)) return null
     if (sub === 'stash' && !['list', 'show'].includes(String(rest[1] || '').toLowerCase())) return null
     if (sub === 'worktree' && String(rest[1] || '').toLowerCase() !== 'list') return null
     if (sub === 'tag' && rest.length > 1 && !hasFlag(/^(?:-l|--list)$/)) return null
@@ -1353,25 +1367,28 @@ function commandIntent(toolName, argsText, sessionCwd) {
   if (program === 'go') {
     const sub = String(rest[0] || '').toLowerCase()
     if (!['test', 'build', 'vet'].includes(sub)) return null
-    if (hasFlag(/^(?:-o|--output|-exec|--exec|-toolexec|--toolexec|-C|--dir|--overlay)(?:=.*)?$/)) return null
+    if (hasFlag(/^(?:-o|--output|-exec|--exec|-toolexec|--toolexec|-C|--dir|--overlay|-vettool)(?:=.*)?$/)) return null
     for (const token of rest) {
       if (token === '..' || token.startsWith('../')) return null
       if (token.startsWith('/') && !isPathWithin(token, cwdScope)) return null
     }
-    return { eligible: true, readOnly: false, pattern: `go ${sub}`, cwd: cwdScope, program: 'go' }
+    return { eligible: true, readOnly: false, trustedBuild: true, pattern: `go ${sub}`, cwd: cwdScope, program: 'go' }
   }
 
   if (['npm', 'pnpm', 'yarn', 'bun'].includes(program)) {
+    // --prefix/-C/--dir/--workspace 会把执行目录指到根外，项目信任下也不放行。
+    if (hasFlag(/^(?:--prefix|-C|--dir|--workspace|-w|--filter)(?:=.*)?$/)) return null
     const sub = String(rest[0] || '').toLowerCase()
-    if (sub === 'test') return { eligible: true, readOnly: false, pattern: `${program} test`, cwd: cwdScope, program }
+    if (sub === 'test') return { eligible: true, readOnly: false, trustedBuild: true, pattern: `${program} test`, cwd: cwdScope, program }
     if (sub === 'run') {
       const script = String(rest[1] || '').toLowerCase()
       if (!SAFE_PM_SCRIPTS.has(script)) return null
-      return { eligible: true, readOnly: false, pattern: `${program} run ${script}`, cwd: cwdScope, program }
+      const trustedBuild = ['test', 'build'].includes(script)
+      return { eligible: true, readOnly: false, trustedBuild, pattern: `${program} run ${script}`, cwd: cwdScope, program }
     }
     // pnpm/yarn 允许直接写脚本名（pnpm lint）
     if (['pnpm', 'yarn'].includes(program) && SAFE_PM_SCRIPTS.has(sub)) {
-      return { eligible: true, readOnly: false, pattern: `${program} ${sub}`, cwd: cwdScope, program }
+      return { eligible: true, readOnly: false, trustedBuild: ['test', 'build'].includes(sub), pattern: `${program} ${sub}`, cwd: cwdScope, program }
     }
     return null
   }
@@ -1380,11 +1397,19 @@ function commandIntent(toolName, argsText, sessionCwd) {
   if (READ_ONLY_PROGRAMS.has(program)) {
     if (program === 'sed') {
       if (!hasFlag(/^-(?:n|quiet|silent)/)) return null
-      if (hasFlag(/^-(?:i|in-place)|--in-place(?:=.*)?$/)) return null
+      if (hasFlag(/^--in-place(?:=.*)?$/)) return null
+      // 组合短旗标：-ni / -ni.bak / -i 都含 i，拒绝原地写。
+      if (flags.some((f) => /^-[^-]/.test(f) && f.slice(1).includes('i'))) return null
+      for (const t of rest) {
+        let script = ''
+        if (t.startsWith('--expression=')) script = t.slice('--expression='.length)
+        else if (/^-e./.test(t)) script = t.slice(2)
+        if (script && /[we]/.test(script)) return null
+      }
       const script = rest.find((t) => !t.startsWith('-'))
       if (script && /[we]/.test(script)) return null
     }
-    if (program === 'sort' && hasFlag(/^-(?:o|output)|--output(?:=.*)?$/)) return null
+    if (program === 'sort' && hasFlag(/^(?:-o|--output|--compress-program|--temporary-directory|-T)(?:=.*)?$/)) return null
     if (!localReadOnlyArgsWithin(rest, cwdScope)) return null
     return { eligible: true, readOnly: true, pattern: `${program} read`, cwd: cwdScope, program }
   }
@@ -1418,14 +1443,14 @@ function opSignature(toolName, mode, justification) {
   if (patterns.length === 0) return null
   return `${toolName}|${mode || 'none'}|${patterns.join(',')}`
 }
-function matchRule(rules, toolName, mode, category, justification, commandCtx) {
+function matchRule(rules, toolName, mode, category, justification, commandCtx, opts) {
   const list = rules || []
   const j = String(justification || '').toLowerCase()
   for (const rule of list) {
     if (rule.disabled === true) continue
     if (rule.tool && rule.tool !== toolName) continue
     if (rule.mode && rule.mode !== mode) continue
-    if (rule.category && rule.category !== category) continue
+    if ((!opts || opts.ignoreCategory !== true) && rule.category && rule.category !== category) continue
     // 命令规则必须命中本次真实命令意图；没有上下文（旧调用/非 bash）不匹配，避免放宽
     if (rule.commandPattern) {
       if (!commandCtx || rule.commandPattern !== commandCtx.pattern) continue
@@ -2441,7 +2466,7 @@ export default {
 
         // 显式“永久人工”规则优先于只读快速路径（Deny 永远不能被便捷路径绕过）。
         // 这里先用无 category 的匹配覆盖通用/命令 deny 规则；带 category 的规则仍在 4d 复核。
-        if (matchRule(config.denyRules, toolName, mode, null, justification, commandCtx)) {
+        if (matchRule(config.denyRules, toolName, mode, null, justification, commandCtx, { ignoreCategory: true })) {
           audit(`DENYRULE ${toolName} mode=${mode || 'none'} → 人工`)
           return forwardToHuman(sessionId, toolName, mode, reason, justification, '', 'deny-rule')
         }
@@ -2449,6 +2474,11 @@ export default {
         // 2. 严格只读快速路径：首次安装即可用，不需要规则/学习/人工确认。
         // 仅限白名单程序、无管道/重定向/命令替换、路径在本次 cwd 内；不写规则/学习/快照。
         if (commandCtx && commandCtx.readOnly) {
+          // 只读命令不能借 cd 跳出会话工作区（cd /etc && cat passwd）。
+          if (!sessionCwd || !isPathWithin(commandCtx.cwd, sessionCwd)) {
+            audit(`READONLY-OUTSIDE ${toolName} mode=${mode || 'none'} cwd=${commandCtx.cwd} → 人工`)
+            return forwardToHuman(sessionId, toolName, mode, reason, justification, '', 'readonly-outside')
+          }
           if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'readonly')
           audit(`READONLY ${toolName} mode=${mode || 'none'} cmd=${commandCtx.pattern} cwd=${commandCtx.cwd}`)
           recordAutoAllow(sessionId, toolName, mode, reason, justification, 'readonly', {
@@ -2532,7 +2562,7 @@ export default {
         }
 
         // 4d. denyRules 命中（此前用户裁决拒绝过的 key）→ 直接转人工（拒绝优先于沉淀）
-        if (matchRule(config.denyRules, toolName, mode, cat, justification, commandCtx)) {
+        if (matchRule(config.denyRules, toolName, mode, cat, justification, commandCtx, { ignoreCategory: true })) {
           audit(`DENYRULE ${toolName} mode=${mode || 'none'} category=${cat} → 人工 | ${reason.slice(0, 120)}`)
           return forwardToHuman(sessionId, toolName, mode, reason, justification, cat, 'deny-rule')
         }

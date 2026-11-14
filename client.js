@@ -329,9 +329,10 @@ window.__ModuleLoader__.load({
       fpHit: '已确认操作',
       'flash-same': 'Flash 同类验证',
       readonly: T('只读命令','Read-only command'),
+      'project-trust': T('项目信任','Project trust'),
       'shadow-candidate': T('Shadow 候选','Shadow candidates')
     }
-    const VERDICT_NEUTRAL = new Set(['rule', 'learned', 'fpHit', 'flash-same'])
+    const VERDICT_NEUTRAL = new Set(['rule', 'learned', 'fpHit', 'flash-same', 'readonly', 'project-trust'])
     const SHADOW_PATH_LABELS = {
       trust: '信任目录',
       'session-memory': '会话记忆',
