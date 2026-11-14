@@ -75,7 +75,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Reject escalation** | 3 consecutive / 20 total rejections → `escalate` event and a red "needs human" badge |
 | **Two-stage judging** | Fast `ALLOW/REVIEW` screen + deep re-check; off by default |
 | **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots |
-| **Approval dashboard** | Stat cards, distribution bar, 7-day trend, top tools, filters/search, date-grouped timeline |
+| **Approval dashboard** | Stat cards, distribution bar, 7-day trend, top tools, per-project aggregation, filters/search, date-grouped timeline |
 
 ## Install
 
@@ -179,9 +179,10 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 | Area | What it shows | Question it answers |
 | --- | --- | --- |
 | **Needs attention** | Rejected + escalated summary (only shown when such records exist), with a "show only these" action | Is there anything I need to handle? |
-| **Overview** (collapsed by default, expandable) | Four stat cards: auto / manual / rejected / needs-human, with percentages | What is the approval mix in this session? |
+| **Overview** (collapsed by default, expandable) | Five stat cards: auto / Shadow / manual / rejected / needs-human, with percentages | What is the approval mix in this session? |
 | | Four-segment distribution bar + rule overview: total / self-learned / graduated / trust roots | How much is automated, and how much has been learned? |
 | | 7-day approval trend + top tools | When, and with which tools, do approvals happen? |
+| | Per-project/directory aggregation (all sessions): name, path, auto-rate bar, total/auto/rejected/Shadow | Which projects trigger approvals most, and how automated are they? |
 | **Filters** | All / auto / manual / rejected / escalated / attention chips + search over tool, reason and arguments | Find a class of records quickly |
 | **Timeline** | Date-grouped rows with tool, verdict tag, time, reason, real arguments, remember/forget, files and diff snapshots | What exactly happened, why was it allowed, and can I undo it? |
 
@@ -211,8 +212,6 @@ Eight configuration cards:
 | ⑤ Learning | Keys currently learning and their progress |
 | ⑥ Auto learning | Session memory, promotion, graduation, self-learning, two-stage |
 | ⑦ Rule library | Unified rule management + inline editing + health check + export |
-
-> **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
 
 > **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
 
@@ -313,7 +312,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 - [x] Inline rule editing (tool/mode/category/contains/description);
 - [ ] Semantic reuse (generalize from a single approval);
 - [x] Shadow mode: record "would auto-approve" candidates before enabling;
-- [ ] Per-project stats and trends;
+- [x] Per-project stats (all sessions, unknown-directory fallback);
 - [ ] i18n for UI copy.
 
 ## FAQ

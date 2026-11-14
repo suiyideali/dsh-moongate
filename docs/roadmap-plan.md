@@ -44,6 +44,14 @@
 
 - 事件已带 `cwd` 后，仪表盘按项目根/目录聚合展示数量、放行率、拒绝数。
 - 历史无 `cwd` 的事件归入“未知目录”，不做回溯推断。
+- 聚合在 host 端只读 `events.jsonl`，新增 `GET /api/auto-approve/project-stats`；只统计已落地结果（跳过 `manual-pending`），按总数倒序，最多返回 24 个项目。
+- 仪表盘展示项目名、完整路径（title 提示）、自动率条、总数/自动/拒绝/Shadow；空数据显示引导文案。
+
+**验收**
+
+- 同一 `cwd` 的 auto/manual/rejected/shadow 事件聚合到一行；`autoRate` 按 auto/total 计算。
+- 无 `cwd` 的历史事件进入“未知目录”，不与其他项目合并。
+- API 只读，不触发规则/学习/快照副作用；`npm test` 覆盖当前目录与未知目录两类聚合。
 
 ## 4. i18n
 

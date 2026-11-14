@@ -1,7 +1,7 @@
 // Smoke tests for the dsh-approval-gate fork.
 // Runs without DSH: uses a temporary DSH_HOME so the plugin's top-level
 // config initialization cannot touch the real profile.
-import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
@@ -21,7 +21,7 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
-for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑']) {
+for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
 
@@ -169,6 +169,18 @@ assert.equal(unsafe.status, 400, 'unsafe rule edit rejected')
 assert.match(unsafe.json.error, /danger-full-access/, 'unsafe edit explains danger-full-access constraint')
 const afterEdit = await callApi('/api/auto-approve/rules', 'GET')
 assert.equal(afterEdit.json.config.allowRules.find((rule) => rule.id === editable.id).description, 'inline edit test', 'inline edit persisted')
+
+// 项目统计：按 cwd 聚合；历史无 cwd 归入“未知目录”。
+appendFileSync(eventsPath, JSON.stringify({ id: 9999, ts: Date.now(), tool: 'old', mode: 'workspace-write', verdict: 'rule', kind: 'auto' }) + '\n')
+const projectStats = await callApi('/api/auto-approve/project-stats', 'GET')
+assert.equal(projectStats.status, 200, 'project stats endpoint')
+assert.ok(projectStats.json.ok, 'project stats ok')
+const project = projectStats.json.projects.find((p) => p.path === cwd)
+assert.ok(project, 'project stats includes current cwd')
+assert.ok(project.auto >= 1, 'project stats counts auto approvals')
+assert.ok(project.shadow >= 1, 'project stats counts shadow candidates')
+const unknown = projectStats.json.projects.find((p) => !p.path)
+assert.ok(unknown && unknown.name === '未知目录', 'project stats groups missing cwd as unknown')
 
 const patchPath = new URL('../patches/dsh-approval-gate@0.5.0.patch', import.meta.url)
 assert.ok(existsSync(patchPath), 'fork patch present')
