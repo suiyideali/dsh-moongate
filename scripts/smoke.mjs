@@ -19,6 +19,7 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 }
 
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
 for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }

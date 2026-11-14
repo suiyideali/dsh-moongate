@@ -1,5 +1,5 @@
 /**
- * dsh-approval-gate — 自动审批审查界面（浏览器端 bundle）
+ * dsh-moongate — 自动审批审查界面（浏览器端 bundle）
  *
  * 提供两处 UI（严格按 DSH 设计语言，--dsw-alias-* tokens）：
  * 1. ✅ 自动放行提示条：conversation.input.dock（输入框上方独立行，order=30，
@@ -12,7 +12,7 @@
  * （events.jsonl 由 host 插件在每次自动放行时追加）。
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-approval-gate',
+  id: 'dsh-moongate',
   factory: (require) => {
     var module = { exports: {} }
     var exports = module.exports
@@ -1725,11 +1725,11 @@ window.__ModuleLoader__.load({
         let styleEl = null
         try {
           styleEl = document.createElement('style')
-          styleEl.setAttribute('data-plugin-css', 'dsh-approval-gate')
+          styleEl.setAttribute('data-plugin-css', 'dsh-moongate')
           styleEl.textContent = CSS
           document.head.appendChild(styleEl)
         } catch (e) {
-          console.error('[dsh-approval-gate] 注入样式失败：' + String((e && e.message) || e))
+          console.error('[dsh-moongate] 注入样式失败：' + String((e && e.message) || e))
         }
         ctx.effect(() => {
           return () => {
