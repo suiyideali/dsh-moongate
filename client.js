@@ -405,11 +405,33 @@ window.__ModuleLoader__.load({
       const [reverting, setReverting] = React.useState(false)
       const [revertDone, setRevertDone] = React.useState(false)
 
+      const panelRef = React.useRef(null)
+      const onCloseRef = React.useRef(onClose)
+      React.useEffect(function () { onCloseRef.current = onClose }, [onClose])
       React.useEffect(function () {
-        const onKey = function (e) { if (e.key === 'Escape') onClose() }
+        const prevFocus = typeof document !== 'undefined' ? document.activeElement : null
+        const panel = panelRef.current
+        if (panel && panel.focus) panel.focus()
+        const onKey = function (e) {
+          if (e.key === 'Escape') { e.preventDefault(); onCloseRef.current(); return }
+          if (e.key !== 'Tab' || !panel) return
+          const nodes = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+          const list = Array.prototype.filter.call(nodes, function (n) { return !n.disabled && n.offsetParent !== null })
+          if (list.length === 0) { e.preventDefault(); panel.focus(); return }
+          const first = list[0]
+          const last = list[list.length - 1]
+          if (e.shiftKey && (document.activeElement === first || document.activeElement === panel)) {
+            e.preventDefault(); last.focus()
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault(); first.focus()
+          }
+        }
         window.addEventListener('keydown', onKey)
-        return function () { window.removeEventListener('keydown', onKey) }
-      }, [onClose])
+        return function () {
+          window.removeEventListener('keydown', onKey)
+          if (prevFocus && prevFocus.focus) { try { prevFocus.focus() } catch (e) {} }
+        }
+      }, [])
 
       React.useEffect(function () {
         setData(null)
@@ -452,7 +474,7 @@ window.__ModuleLoader__.load({
       const stats = data ? (data.stats || {}) : null
 
       return React.createElement('div', { className: 'ag-diff-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': '改动对比', onClick: function (e) { if (e.target === e.currentTarget) onClose() } },
-        React.createElement('div', { className: 'ag-diff-panel' },
+        React.createElement('div', { className: 'ag-diff-panel', ref: panelRef, tabIndex: -1 },
           React.createElement('div', { className: 'ag-diff-head' },
             React.createElement('div', { className: 'ag-diff-title' },
               React.createElement('span', null, '文件改动对比'),
@@ -525,15 +547,40 @@ window.__ModuleLoader__.load({
     // ================= 审批历史视图（conversation.view，order=20，轨迹右侧） =================
     function HistoryView(props) {
       const sessionId = (props && (props.sessionId || (props.slotsProps && props.slotsProps.sessionId))) || null
+      const VIEW_PREF_KEY = 'ag-view-prefs-v1'
+      const initialPrefs = React.useMemo(function () {
+        try {
+          if (typeof window === 'undefined') return {}
+          return JSON.parse(window.localStorage.getItem(VIEW_PREF_KEY) || '{}') || {}
+        } catch (e) { return {} }
+      }, [])
+      const allowedFilters = ['all', 'auto', 'approved', 'rejected', 'escalate', 'attention']
       const [events, setEvents] = React.useState(null)
       const [error, setError] = React.useState(null)
       const [snapStats, setSnapStats] = React.useState(null) // {count, bytes} | null（当前会话）
       const [globalSnapStats, setGlobalSnapStats] = React.useState(null) // {count, bytes} | null（全部会话）
       const [counters, setCounters] = React.useState(null) // {consecutive, total, limits} | null
-      const [kindFilter, setKindFilter] = React.useState('all')
-      const [viewTab, setViewTab] = React.useState('records')
-      const [dashOpen, setDashOpen] = React.useState(false)
-      const [query, setQuery] = React.useState('')
+      const [kindFilter, setKindFilter] = React.useState(allowedFilters.indexOf(initialPrefs.kindFilter) >= 0 ? initialPrefs.kindFilter : 'all')
+      const [viewTab, setViewTab] = React.useState(initialPrefs.viewTab === 'settings' ? 'settings' : 'records')
+      const [dashOpen, setDashOpen] = React.useState(initialPrefs.dashOpen === true)
+      const [query, setQuery] = React.useState(typeof initialPrefs.query === 'string' ? initialPrefs.query : '')
+      const lastIdRef = React.useRef(0)
+      const loadRef = React.useRef(null)
+      const prevTabRef = React.useRef(viewTab)
+      React.useEffect(function () {
+        if (prevTabRef.current === viewTab) return
+        prevTabRef.current = viewTab
+        if (viewTab === 'records' && loadRef.current) {
+          tabRef.current = 'records'
+          loadRef.current()
+        }
+      }, [viewTab])
+      React.useEffect(function () {
+        try {
+          if (typeof window === 'undefined') return
+          window.localStorage.setItem(VIEW_PREF_KEY, JSON.stringify({ kindFilter: kindFilter, viewTab: viewTab, dashOpen: dashOpen, query: query }))
+        } catch (e) {}
+      }, [kindFilter, viewTab, dashOpen, query])
       const [rulesSnap, setRulesSnap] = React.useState(null)
       const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
       const [diffOpen, setDiffOpen] = React.useState(null) // {eventId, path} | null
@@ -642,15 +689,32 @@ window.__ModuleLoader__.load({
         setRulesSnap(null)
         setDiffOpen(null)
         setRemembered({})
+        lastIdRef.current = 0
         if (!sessionId) { setEvents([]); loadSnapStats(null); return }
         let alive = true
+        let tick = 0
         const load = function () {
           if (tabRef.current !== 'records') return
           if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-          fetchEvents(sessionId, 0).then(function (evs) {
+          const full = (tick % 12) === 0 // 首次全量；之后增量，每分钟兜底全量
+          tick += 1
+          const since = full ? 0 : lastIdRef.current
+          fetchEvents(sessionId, since).then(function (evs) {
             if (!alive) return
-            evs.sort(function (a, b) { return b.id - a.id }) // 时间倒序：最新在最上面
-            setEvents(evs)
+            const maxId = evs.reduce(function (m, ev) { return Math.max(m, Number(ev.id) || 0) }, 0)
+            if (full) {
+              evs.sort(function (a, b) { return b.id - a.id }) // 时间倒序：最新在最上面
+              lastIdRef.current = maxId
+              setEvents(evs)
+            } else if (evs.length > 0) {
+              lastIdRef.current = Math.max(lastIdRef.current, maxId)
+              setEvents(function (prev) {
+                const map = new Map()
+                ;(prev || []).forEach(function (ev) { map.set(ev.id, ev) })
+                evs.forEach(function (ev) { map.set(ev.id, ev) })
+                return Array.from(map.values()).sort(function (a, b) { return b.id - a.id })
+              })
+            }
             setError(null)
           }).catch(function (e) {
             if (!alive) return
@@ -660,9 +724,14 @@ window.__ModuleLoader__.load({
           loadCounters(sessionId)
           loadRules()
         }
+        loadRef.current = load
         load()
         const timer = setInterval(load, 5000)
-        return function () { alive = false; clearInterval(timer) }
+        return function () {
+          alive = false
+          clearInterval(timer)
+          if (loadRef.current === load) loadRef.current = null
+        }
       }, [sessionId])
 
       const kindKey = function (ev) {
