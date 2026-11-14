@@ -467,9 +467,9 @@ function getRulesSnapshot() {
       denyEscalateTotal: config.denyEscalateTotal || 20,
       stage1Provider: config.stage1Provider || '',
       stage1Model: config.stage1Model || '',
-      selfLearn: config.selfLearn === true,
-      selfLearnThreshold: config.selfLearnThreshold || 5,
-      selfLearnSessions: config.selfLearnSessions || 2,
+      selfLearn: config.selfLearn !== false,
+      selfLearnThreshold: config.selfLearnThreshold || 3,
+      selfLearnSessions: config.selfLearnSessions || 1,
       selfLearnMaxRules: config.selfLearnMaxRules || 50,
       onboarded: config.onboarded === true
     },
@@ -825,10 +825,11 @@ function normalizeConfig(raw) {
   cfg.denyEscalateTotal = Number.isFinite(cfg.denyEscalateTotal) && cfg.denyEscalateTotal > 0 ? cfg.denyEscalateTotal : 20
   cfg.stage1Provider = typeof cfg.stage1Provider === 'string' ? cfg.stage1Provider : ''
   cfg.stage1Model = typeof cfg.stage1Model === 'string' ? cfg.stage1Model : ''
-  cfg.selfLearn = cfg.selfLearn === true
+  // 默认开启自学习；显式 false 保持关闭（老用户/手动关闭不被覆盖）
+  cfg.selfLearn = cfg.selfLearn === undefined ? true : cfg.selfLearn === true
   cfg.onboarded = cfg.onboarded === true
-  cfg.selfLearnThreshold = Number.isFinite(cfg.selfLearnThreshold) && cfg.selfLearnThreshold > 0 ? cfg.selfLearnThreshold : 5
-  cfg.selfLearnSessions = Number.isFinite(cfg.selfLearnSessions) && cfg.selfLearnSessions > 0 ? cfg.selfLearnSessions : 2
+  cfg.selfLearnThreshold = Number.isFinite(cfg.selfLearnThreshold) && cfg.selfLearnThreshold > 0 ? cfg.selfLearnThreshold : 3
+  cfg.selfLearnSessions = Number.isFinite(cfg.selfLearnSessions) && cfg.selfLearnSessions > 0 ? cfg.selfLearnSessions : 1
   cfg.selfLearnMaxRules = Number.isFinite(cfg.selfLearnMaxRules) && cfg.selfLearnMaxRules > 0 ? cfg.selfLearnMaxRules : 50
   return cfg
 }
@@ -857,10 +858,10 @@ if (!config || typeof config !== 'object') {
     denyEscalateTotal: 20,
     stage1Provider: '',
     stage1Model: '',
-    selfLearn: false,
+    selfLearn: true,
     onboarded: false,
-    selfLearnThreshold: 5,
-    selfLearnSessions: 2,
+    selfLearnThreshold: 3,
+    selfLearnSessions: 1,
     selfLearnMaxRules: 50
   }
   saveJson(ALLOWLIST_PATH, config)
