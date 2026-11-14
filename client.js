@@ -298,6 +298,14 @@ window.__ModuleLoader__.load({
 .ag-switch-pair{display:inline-flex;align-items:center;gap:8px}
 .ag-switch-state{min-width:30px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;white-space:nowrap}
 .ag-switch-on + .ag-switch-state{color:var(--dsw-alias-state-business-primary)}
+/* ---- settings typography: make card headings readable ---- */
+.ag-set-title{font-size:18px;font-weight:600;line-height:26px;letter-spacing:-.01em}
+.ag-set-intro{font-size:14px;line-height:21px}
+.ag-set-card-head{gap:6px}
+.ag-set-card-title{font-size:16px;font-weight:600;line-height:24px;letter-spacing:-.005em}
+.ag-set-stage{height:24px;border-radius:12px;padding:0 10px;font-size:12px;line-height:24px;font-weight:600;letter-spacing:.01em}
+.ag-set-card-sub{font-size:13.5px;line-height:20px}
+.ag-set-item-label{font-size:13.5px;line-height:20px}
 `
 
     const VERDICT_LABELS = {
