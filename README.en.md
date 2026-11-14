@@ -74,6 +74,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Rule health check** | Flags generic `contains`, blanket mode rules and huge trust roots, with narrowing suggestions |
 | **Reject escalation** | 3 consecutive / 20 total rejections → `escalate` event and a red "needs human" badge |
 | **Two-stage judging** | Fast `ALLOW/REVIEW` screen + deep re-check; off by default |
+| **Shadow mode** | Records “would auto-approve” candidates while still asking you; writes no rules, learning or snapshots |
 | **Approval dashboard** | Stat cards, distribution bar, 7-day trend, top tools, filters/search, date-grouped timeline |
 
 ## Install
@@ -305,7 +306,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 
 - [ ] Inline rule editing (enable/disable/delete today);
 - [ ] Semantic reuse (generalize from a single approval);
-- [ ] Shadow mode: record "would auto-approve" candidates before enabling;
+- [x] Shadow mode: record "would auto-approve" candidates before enabling;
 - [ ] Per-project stats and trends;
 - [ ] i18n for UI copy.
 

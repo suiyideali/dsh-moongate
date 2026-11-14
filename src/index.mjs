@@ -303,6 +303,9 @@ function recordApprovalEvent(sessionId, toolName, mode, reason, justification, v
   if (o.total !== undefined) ev.total = o.total
   if (o.args) ev.args = String(o.args).slice(0, 600)
   if (o.category) ev.category = o.category
+  // cwd：审批时的会话工作目录（供按项目/目录统计；旧事件没有这个字段）
+  if (o.cwd) ev.cwd = String(o.cwd).slice(0, 500)
+  if (o.wouldPath) ev.wouldPath = String(o.wouldPath).slice(0, 80)
   // path：判定路径标识（hard-category / unknown-category / deny-rule / deny / flash-failed / neutral-reject / neutral-confirm）
   if (o.path) ev.path = o.path
   try {
@@ -377,7 +380,8 @@ function getRulesSnapshot() {
       promotionSessions: config.promotionSessions || 2,
       graduationThreshold: config.graduationThreshold || 3,
       graduationSessions: config.graduationSessions || 2,
-      twoStage: config.twoStage !== false,
+      twoStage: config.twoStage === true,
+      shadow: config.shadow === true,
       denyEscalateConsecutive: config.denyEscalateConsecutive || 3,
       denyEscalateTotal: config.denyEscalateTotal || 20,
       stage1Provider: config.stage1Provider || '',
@@ -499,6 +503,13 @@ function applyRuleOp(op, kind, value) {
     config.twoStage = value !== false
     saveJson(ALLOWLIST_PATH, config)
     return { ok: true, set: true, value: config.twoStage }
+  }
+  if (kind === 'shadow') {
+    if (op !== 'set') return { ok: false, error: 'shadow 使用 set 操作' }
+    config.shadow = value === true
+    saveJson(ALLOWLIST_PATH, config)
+    audit(`CONFIG  shadow → ${config.shadow}`)
+    return { ok: true, set: true, value: config.shadow }
   }
   if (kind === 'sessionMemory') {
     if (op !== 'set') return { ok: false, error: 'sessionMemory 使用 set 操作' }
@@ -685,6 +696,7 @@ function normalizeConfig(raw) {
   cfg.graduationThreshold = Number.isFinite(cfg.graduationThreshold) && cfg.graduationThreshold > 0 ? cfg.graduationThreshold : 3
   cfg.graduationSessions = Number.isFinite(cfg.graduationSessions) && cfg.graduationSessions > 0 ? cfg.graduationSessions : 2
   cfg.twoStage = cfg.twoStage === true
+  cfg.shadow = cfg.shadow === true
   cfg.denyEscalateConsecutive = Number.isFinite(cfg.denyEscalateConsecutive) && cfg.denyEscalateConsecutive > 0 ? cfg.denyEscalateConsecutive : 3
   cfg.denyEscalateTotal = Number.isFinite(cfg.denyEscalateTotal) && cfg.denyEscalateTotal > 0 ? cfg.denyEscalateTotal : 20
   cfg.stage1Provider = typeof cfg.stage1Provider === 'string' ? cfg.stage1Provider : ''
@@ -714,6 +726,7 @@ if (!config || typeof config !== 'object') {
     graduationThreshold: 3,
     graduationSessions: 2,
     twoStage: false,
+    shadow: false,
     denyEscalateConsecutive: 3,
     denyEscalateTotal: 20,
     stage1Provider: '',
@@ -762,7 +775,7 @@ function findApprovalEvent(eventId, body) {
 }
 // ---- 拒绝计数与升级（deny-and-continue）：连续 3 次或累计 20 次拒绝 → 提示人工介入 ----
 const rejectCounters = new Map() // sessionId -> { consecutive, total }
-function recordOutcome(sid, tool, mode, reason, justification, category, outcome) {
+function recordOutcome(sid, tool, mode, reason, justification, category, outcome, cwd) {
   if (!sid) return
   let c = rejectCounters.get(sid)
   if (!c) { c = { consecutive: 0, total: 0 }; rejectCounters.set(sid, c) }
@@ -774,7 +787,7 @@ function recordOutcome(sid, tool, mode, reason, justification, category, outcome
   const limitT = config.denyEscalateTotal || 20
   if (c.consecutive === limitC || c.total === limitT) {
     recordApprovalEvent(sid, tool, mode, reason, justification, 'escalated', {
-      kind: 'escalate', category: category || '', path: 'escalate', consecutive: c.consecutive, total: c.total,
+      kind: 'escalate', category: category || '', path: 'escalate', consecutive: c.consecutive, total: c.total, cwd: cwd || '',
     })
     audit(`ESCALATE ${sid} tool=${tool} consecutive=${c.consecutive} total=${c.total} → 建议人工介入`)
   }
@@ -1883,18 +1896,31 @@ export default {
         if (judgeArgs) audit(`INPUT   ${toolName} callArgs=${judgeArgs.length}B`)
         // 会话工作目录：相对路径快照解析的基准（DSH SessionHeader.cwd）
         const sessionCwd = (typeof session.cwd === 'string' && session.cwd) ? session.cwd : ''
+        // Shadow 模式：命中“本可自动放行”时只记录候选，仍转人工；不写规则/学习/快照
+        const shadowMode = config.shadow === true
 
         // 转人工统一处理：记录 pending → 交下游（web answerer）→ 记录终态事件（关闭提示条）
         const forwardToHuman = async (sid, tName, tMode, rsn, jst, cat, why) => {
-          recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-pending', { kind: 'manual-pending', category: cat || '', path: why, args: judgeArgs })
+          recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-pending', { kind: 'manual-pending', category: cat || '', path: why, args: judgeArgs, cwd: sessionCwd })
           const out = await next()
-          recordOutcome(sid, tName, tMode, rsn, jst, cat, out)
+          recordOutcome(sid, tName, tMode, rsn, jst, cat, out, sessionCwd)
           if (out === 'allowed-once') {
-            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-approved', { kind: 'manual-approved', category: cat || '', path: why, args: judgeArgs })
+            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-approved', { kind: 'manual-approved', category: cat || '', path: why, args: judgeArgs, cwd: sessionCwd })
           } else if (out === 'rejected') {
-            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-rejected', { kind: 'manual-rejected', category: cat || '', path: why, args: judgeArgs })
+            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-rejected', { kind: 'manual-rejected', category: cat || '', path: why, args: judgeArgs, cwd: sessionCwd })
           }
           return out
+        }
+
+        // Shadow 候选：记录“如果关闭 Shadow，这次会走哪条自动放行路径”，然后仍转人工。
+        // 关键约束：不 touch 规则命中数、不写 learning.json、不生成快照。
+        const shadowForward = async (sid, tName, tMode, rsn, jst, cat, path) => {
+          recordApprovalEvent(sid, tName, tMode, rsn, jst, 'shadow-candidate', {
+            kind: 'shadow-candidate', category: cat || '', path, wouldPath: path,
+            args: judgeArgs, cwd: sessionCwd
+          })
+          audit(`SHADOW  ${tName} mode=${tMode || 'none'} would=${path} → 人工`)
+          return forwardToHuman(sid, tName, tMode, rsn, jst, cat, 'shadow-mode')
         }
 
         // 1. DENY 层：不可逆危险词 → 转人工（fail-safe，最高优先）
@@ -1906,8 +1932,9 @@ export default {
         // 2a. 可写根目录信任：一次性配置，范围内的操作直接放行（零点击）
         const trustedRoot = trustHit(justification)
         if (trustedRoot) {
+          if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'trust')
           audit(`TRUST   ${toolName} mode=${mode || 'none'} root=${trustedRoot}`)
-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'trust', { baseDir: sessionCwd, args: judgeArgs })
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'trust', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
           return 'allowed-once'
         }
 
@@ -1915,17 +1942,19 @@ export default {
         const earlyFp = extractOperationFingerprint(justification)
         const memEntry = sessionMemoryHit(sessionId, toolName, mode, earlyFp)
         if (memEntry) {
+          if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'session-memory')
           audit(`SESSIONMEM ${toolName} mode=${mode || 'none'} fp=${earlyFp}`)
-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'session-memory', { baseDir: sessionCwd, args: judgeArgs })
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'session-memory', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
           return 'allowed-once'
         }
 
         // 2. 白名单层：命中规则 → 直接放行（确定性，不过 flash）
         const matchedRule = matchRule(config.allowRules, toolName, mode, null, justification)
         if (matchedRule) {
+          if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'rule')
           touchRuleHit(matchedRule)
           audit(`ALLOW   ${toolName} mode=${mode || 'none'} (rule: ${matchedRule.description || 'matched'}${matchedRule.contains ? ',contains=' + matchedRule.contains : ''},hit=${matchedRule.hitCount || 0})`)
-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'rule', { baseDir: sessionCwd, args: judgeArgs })
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'rule', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
           return 'allowed-once'
         }
 
@@ -1933,8 +1962,9 @@ export default {
         const { verdict, category, timedOut, failed, stage } = await judgeWithFlash(toolName, mode, justification, judgeArgs)
 
         if (verdict === 'safe') {
+          if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'flash-safe')
           audit(`ALLOW   ${toolName} mode=${mode || 'none'} (flash-safe${timedOut ? '，重试后' : ''}${stage === 'fast' ? ',fast' : ''})`)
-          const ev = recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-safe', { baseDir: sessionCwd, args: judgeArgs })
+          const ev = recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-safe', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
           recordSelfObservation(sessionId, toolName, mode, justification, ev && ev.id)
           return 'allowed-once'
         }
@@ -1970,11 +2000,12 @@ export default {
         const key = learnKey(toolName, mode, cat)
         const learnedRule = matchRule(config.allowRules, toolName, mode, cat, justification)
         if (learnedRule) {
+          if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'learned')
           touchRuleHit(learnedRule)
           audit(`ALLOW   ${toolName} mode=${mode || 'none'} (rule: ${learnedRule.description || '沉淀规则'}${learnedRule.contains ? ',contains=' + learnedRule.contains : ''},hit=${learnedRule.hitCount || 0})`)
           delete learning.stats[key]
           saveJson(LEARNING_PATH, learning)
-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'learned', { baseDir: sessionCwd, args: judgeArgs })
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'learned', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
           return 'allowed-once'
         }
 
@@ -1989,6 +2020,7 @@ export default {
           const fpHit = Boolean(fingerprint) && samples.some((s) => s.fp === fingerprint)
 
           if (fpHit) {
+            if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'fpHit')
             // ① 指纹确定性命中（用户确认过该操作）→ 自动放行 + 沉淀规则
             if (learning.enabled) {
               const rule = { tool: toolName, category: cat, contains: fingerprint }
@@ -2007,7 +2039,7 @@ export default {
             delete learning.stats[key]
             delete learning.history[key]
             saveJson(LEARNING_PATH, learning)
-            recordAutoAllow(sessionId, toolName, mode, reason, justification, 'fpHit', { baseDir: sessionCwd, args: judgeArgs })
+            recordAutoAllow(sessionId, toolName, mode, reason, justification, 'fpHit', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
             return 'allowed-once'
           }
 
@@ -2016,6 +2048,7 @@ export default {
             // 语义判断是否属于已确认的同类操作（不依赖关键词）
             const sim = await verifySimilarityWithRetry(toolName, mode, justification, samples)
             if (sim.verdict === 'same') {
+              if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'flash-same')
               // 判同类 → 自动放行；有指纹则沉淀规则（无指纹不沉淀，保留样本供后续验证）
               if (learning.enabled && fingerprint) {
                 const rule = { tool: toolName, category: cat, contains: fingerprint }
@@ -2037,7 +2070,7 @@ export default {
                 audit(`SAME    ${toolName} mode=${mode || 'none'} category=${cat} flash 判同类（无指纹，未沉淀）| ${reason.slice(0, 100)}`)
               }
               audit(`ALLOW   ${toolName} mode=${mode || 'none'} (flash-same) | ${reason.slice(0, 100)}`)
-              recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-same', { baseDir: sessionCwd, args: judgeArgs })
+              recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-same', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
               return 'allowed-once'
             }
             // 判 DIFFERENT / 验证失败 → 落人工确认
@@ -2046,15 +2079,15 @@ export default {
 
           // 指纹未命中（且无样本可验证 / 判不同类）：转人工确认
           audit(`RISKY   ${toolName} mode=${mode || 'none'} category=${cat} confirm=${confirmed + 1}/${threshold}（操作未确认过）→ 人工 outcome=? | ${reason.slice(0, 120)}`)
-          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs })
+          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd })
           const outcome = await next()
-          recordOutcome(sessionId, toolName, mode, reason, justification, cat, outcome)
+          recordOutcome(sessionId, toolName, mode, reason, justification, cat, outcome, sessionCwd)
           audit(`OUTCOME ${key} outcome=${outcome} | ${reason.slice(0, 80)}`)
           if (outcome === 'allowed-once' && learning.enabled) {
             // 批准 → 记录本次操作样本（背景+指纹）；计数保持阈值位
             recordSample(key, justification)
             saveJson(LEARNING_PATH, learning)
-            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs })
+            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd })
           } else if (outcome === 'rejected') {
             // 拒绝 → 永久人工（带指纹；提取不到则拦全部同类，拒绝从严）
             const rule = { tool: toolName, category: cat }
@@ -2068,7 +2101,7 @@ export default {
             delete learning.stats[key]
             delete learning.history[key]
             saveJson(LEARNING_PATH, learning)
-            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs })
+            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs, cwd: sessionCwd })
           }
           const fpMemoryA = fingerprint || extractOperationFingerprint(justification)
           if (outcome === 'allowed-once') {
@@ -2083,9 +2116,9 @@ export default {
 
         // 前 N 次 → 人工确认
         audit(`RISKY   ${toolName} mode=${mode || 'none'} category=${cat} confirm=${confirmed + 1}/${threshold} → 人工 outcome=? | ${reason.slice(0, 120)}`)
-        recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs })
+        recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd })
         const outcome = await next()
-        recordOutcome(sessionId, toolName, mode, reason, justification, cat, outcome)
+        recordOutcome(sessionId, toolName, mode, reason, justification, cat, outcome, sessionCwd)
         audit(`OUTCOME ${key} outcome=${outcome} | ${reason.slice(0, 80)}`)
 
         if (outcome === 'allowed-once' && learning.enabled) {
@@ -2093,7 +2126,7 @@ export default {
           learning.stats[key] = confirmed + 1
           recordSample(key, justification)
           saveJson(LEARNING_PATH, learning)
-          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed + 1, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs })
+          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed + 1, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd })
         } else if (outcome === 'rejected') {
           // 拒绝 → 升级为永久人工规则（带操作指纹；提取不到则拦全部同类，拒绝从严）
           const fingerprint = extractOperationFingerprint(justification)
@@ -2108,7 +2141,7 @@ export default {
           delete learning.stats[key]
           delete learning.history[key]
           saveJson(LEARNING_PATH, learning)
-          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs })
+          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs, cwd: sessionCwd })
         }
         const fpMemoryB = extractOperationFingerprint(justification)
         if (outcome === 'allowed-once') {
