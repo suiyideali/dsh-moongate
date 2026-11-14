@@ -18,12 +18,13 @@
 - 候选事件包含 `cwd`、`path`、`wouldPath`、`args`；不调用 `touchRuleHit`、不写 `learning.json`、不生成快照。
 - 所有审批事件新增 `cwd`（来自 `session.cwd`），旧事件缺失时保持兼容。
 - 记录页新增 Shadow 候选筛选/标签，不计入“自动放行”统计；设置页新增 Shadow 开关和说明。
+- 观察期内的拒绝不写入 `denyRules`；README 明确说明关闭 Shadow 后需要手动添加永久人工规则。
 
 **验收**
 
 - Shadow 开启时，原本会命中的规则/信任/Flash SAFE 都仍转人工；事件流中出现候选记录。
 - Shadow 关闭时行为与当前版本完全一致。
-- `npm test` 通过；新增 smoke 覆盖候选事件字段、`cwd`、不写规则命中/学习/快照，以及关闭 Shadow 后恢复自动放行。
+- `npm test` 通过；新增 smoke 覆盖候选事件字段、`cwd`、规则/`flash-safe`/`learned` 三条路径、不写规则命中/学习/快照，以及关闭 Shadow 后恢复自动放行。
 
 ## 2. 规则库行内编辑
 

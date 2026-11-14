@@ -905,7 +905,7 @@ window.__ModuleLoader__.load({
               ? React.createElement('div', { className: 'ag-row-meta', title: ev.cwd }, '目录：' + String(ev.cwd).slice(0, 180))
               : null,
             React.createElement('div', { className: 'ag-row-actions' },
-              kind !== 'manual-rejected' && kind !== 'escalate' && ev.mode
+              kind !== 'manual-rejected' && kind !== 'escalate' && kind !== 'shadow-candidate' && ev.mode
                 ? React.createElement('button', {
                     type: 'button', className: 'ag-set-btn ag-btn-xs',
                     disabled: busy,
