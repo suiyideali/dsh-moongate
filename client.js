@@ -19,6 +19,12 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
     const React = require('react')
 
+    // UI locale: follow the browser language; Chinese remains the default.
+    const UI_EN = (function () {
+      try { return /^en\b/i.test((typeof navigator !== 'undefined' && navigator.language) || '') } catch (e) { return false }
+    })()
+    function T(zh, en) { return UI_EN ? (en || zh) : zh }
+
     const CSS = `
 .ag-notice{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance) - var(--dsh-composer-side-clearance) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset));max-width:calc(var(--dsh-composer-card-max-width) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset));margin:0 auto;flex:none}
 .ag-notice-card{box-sizing:border-box;display:flex;align-items:center;gap:10px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:12px;padding:6px 10px 6px 12px;box-shadow:var(--dsw-shadow-lv1)}
@@ -228,7 +234,7 @@ window.__ModuleLoader__.load({
       learned: '沉淀规则',
       fpHit: '已确认操作',
       'flash-same': 'Flash 同类验证',
-      'shadow-candidate': 'Shadow 候选'
+      'shadow-candidate': T('Shadow 候选','Shadow candidates')
     }
     const VERDICT_NEUTRAL = new Set(['rule', 'learned', 'fpHit', 'flash-same'])
     const SHADOW_PATH_LABELS = {
@@ -359,27 +365,27 @@ window.__ModuleLoader__.load({
       let tagText = ''
       let glyph = null
       if (isPending) {
-        title = '等待人工审批：' + (notice.justification || notice.reason || '')
-        tagText = '人工审批中'
+        title = T('等待人工审批：','Waiting for approval: ') + (notice.justification || notice.reason || '')
+        tagText = T('人工审批中','Pending approval')
         glyph = React.createElement('span', { className: 'ag-notice-glyph-warn' }, '◔')
       } else if (kind === 'manual-approved') {
         const lc = notice.learningCount !== undefined ? notice.learningCount : null
         const th = notice.threshold || 3
-        title = '人工审批通过：' + (notice.justification || notice.reason || '')
-        tagText = lc !== null ? ('学习 ' + lc + '/' + th + '，满 ' + th + ' 次后自动放行') : '人工审批通过'
+        title = T('人工审批通过：','Approved by you: ') + (notice.justification || notice.reason || '')
+        tagText = lc !== null ? ('学习 ' + lc + '/' + th + '，满 ' + th + ' 次后自动放行') : T('人工审批通过','Approved by you')
         glyph = React.createElement('span', { className: 'ag-notice-glyph-warn' }, '✓')
       } else if (kind === 'manual-rejected') {
-        title = '已拒绝：' + (notice.justification || notice.reason || '')
-        tagText = rejectLabel(notice).replace('人工拒绝', '已拒绝')
+        title = T('已拒绝：','Rejected: ') + (notice.justification || notice.reason || '')
+        tagText = rejectLabel(notice).replace('人工拒绝', T('已拒绝','Rejected'))
         glyph = React.createElement('span', { className: 'ag-notice-glyph-err' }, '✕')
       } else if (kind === 'escalate') {
         title = '需人工介入：连续拒绝 ' + (notice.consecutive || '?') + ' 次 / 累计 ' + (notice.total || '?') + ' 次'
-        tagText = '需人工介入'
+        tagText = T('需人工介入','Needs human attention')
         glyph = React.createElement('span', { className: 'ag-notice-glyph-err' }, '⚠')
       } else {
         title = (notice.justification || notice.reason || '')
-        const label = VERDICT_LABELS[notice.verdict] || notice.verdict || '自动放行'
-        tagText = '自动放行 · ' + label
+        const label = VERDICT_LABELS[notice.verdict] || notice.verdict || T('自动放行','Auto-approved')
+        tagText = T('自动放行 · ','Auto-approved · ') + label
         glyph = React.createElement(GlyphCheck, null)
       }
       const cardCls = 'ag-notice-card' + (isPending ? ' ag-notice-card-pending' : isManual ? ' ag-notice-card-manual' : '')
@@ -399,8 +405,8 @@ window.__ModuleLoader__.load({
           React.createElement('button', {
             type: 'button',
             className: 'ag-notice-close',
-            title: '关闭提示',
-            'aria-label': '关闭提示',
+            title: T('关闭提示','Close'),
+            'aria-label': T('关闭提示','Close'),
             onClick: function () { setNotice(null) },
           }, '✕'),
         ),
@@ -481,7 +487,7 @@ window.__ModuleLoader__.load({
             setRevertMsg('撤销指令已发送到对话框，AI 将按指令恢复文件')
             setRevertDone(true)
           } else {
-            setRevertMsg((res && res.error) || '发送失败')
+            setRevertMsg((res && res.error) || T('发送失败','Send failed'))
           }
         }).catch(function (e) {
           setRevertMsg('发送失败：' + String((e && e.message) || e))
@@ -515,7 +521,7 @@ window.__ModuleLoader__.load({
             error
               ? React.createElement('div', { className: 'ag-diff-empty' }, error)
               : !data
-                ? React.createElement('div', { className: 'ag-diff-empty' }, '加载中…')
+                ? React.createElement('div', { className: 'ag-diff-empty' }, T('加载中…','Loading…'))
                 : hunks
                   ? hunks.map(function (h, hi) {
                       return React.createElement('div', { key: 'hunk' + hi },
@@ -558,7 +564,7 @@ window.__ModuleLoader__.load({
               type: 'button', className: 'ag-set-btn ag-set-btn-primary',
               onClick: doRevert,
               disabled: reverting || revertDone,
-            }, reverting ? '发送中…' : (revertDone ? '已发送撤销指令' : '撤销此改动')),
+            }, reverting ? '发送中…' : (revertDone ? '已发送撤销指令' : T('撤销此改动','Revert this change'))),
             React.createElement('button', { type: 'button', className: 'ag-set-btn', onClick: onClose }, '关闭'),
           ),
         ),
@@ -722,7 +728,7 @@ window.__ModuleLoader__.load({
           body: JSON.stringify({ eventId: ev.id, tool: ev.tool, mode: ev.mode, justification: ev.justification || ev.reason || '' }),
         }).then(function (r) { return r.json() }).then(function (res) {
           if (res && res.ok) setOverride(ev.id, 'remembered')
-          else setOverride(ev.id, 'error:' + ((res && res.error) || '未知错误'))
+          else setOverride(ev.id, 'error:' + ((res && res.error) || T('未知错误','Unknown error')))
         }).catch(function (e) { setOverride(ev.id, 'error:' + String((e && e.message) || e)) })
       }
       const doForget = function (ev) {
@@ -734,7 +740,7 @@ window.__ModuleLoader__.load({
           body: JSON.stringify({ eventId: ev.id, tool: ev.tool, mode: ev.mode, justification: ev.justification || ev.reason || '' }),
         }).then(function (r) { return r.json() }).then(function (res) {
           if (res && res.ok) setOverride(ev.id, 'forgotten')
-          else setOverride(ev.id, 'error:' + ((res && res.error) || '未知错误'))
+          else setOverride(ev.id, 'error:' + ((res && res.error) || T('未知错误','Unknown error')))
         }).catch(function (e) { setOverride(ev.id, 'error:' + String((e && e.message) || e)) })
       }
 
@@ -854,13 +860,13 @@ window.__ModuleLoader__.load({
       const topTools = Object.keys(toolCounts).map(function (t) { return { tool: t, count: toolCounts[t] } }).sort(function (a, b) { return b.count - a.count }).slice(0, 5)
       const topMax = topTools.length ? topTools[0].count : 1
       const chips = [
-        ['all', '全部', total],
-        ['auto', '自动放行', counts.auto],
-        ['shadow', 'Shadow 候选', counts.shadow],
-        ['approved', '人工通过', counts.approved],
-        ['rejected', '已拒绝', counts.rejected],
-        ['escalate', '需人工介入', counts.escalate],
-        ['attention', '需关注', counts.rejected + counts.escalate],
+        ['all', T('全部','All'), total],
+        ['auto', T('自动放行','Auto-approved'), counts.auto],
+        ['shadow', T('Shadow 候选','Shadow candidates'), counts.shadow],
+        ['approved', T('人工通过','Approved by you'), counts.approved],
+        ['rejected', T('已拒绝','Rejected'), counts.rejected],
+        ['escalate', T('需人工介入','Needs human attention'), counts.escalate],
+        ['attention', T('需关注','Needs attention'), counts.rejected + counts.escalate],
       ]
       const scrollToSection = function (id) { const el = document.getElementById(id); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
       const stat = function (label, value, sub) {
@@ -886,7 +892,7 @@ window.__ModuleLoader__.load({
         if (kind === 'manual-approved') {
           const lc = ev.learningCount !== undefined ? ev.learningCount : null
           const th = ev.threshold || 3
-          tagText = lc !== null ? ('人工通过 · 学习 ' + lc + '/' + th) : '人工通过'
+          tagText = lc !== null ? ('人工通过 · 学习 ' + lc + '/' + th) : T('人工通过','Approved by you')
           tagCls = 'ag-tag-warn'
           glyphCls = 'ag-row-glyph-warn'
           glyph = React.createElement('span', null, '✓')
@@ -906,7 +912,7 @@ window.__ModuleLoader__.load({
           tagCls = 'ag-tag-neutral'
           glyph = React.createElement('span', null, '◌')
         } else {
-          tagText = '自动放行 · ' + (VERDICT_LABELS[ev.verdict] || ev.verdict || 'auto')
+          tagText = T('自动放行 · ','Auto-approved · ') + (VERDICT_LABELS[ev.verdict] || ev.verdict || 'auto')
           tagCls = 'ag-tag' + (VERDICT_NEUTRAL.has(ev.verdict) ? ' ag-tag-neutral' : '')
         }
         const ov = remembered[ev.id]
@@ -926,10 +932,10 @@ window.__ModuleLoader__.load({
             ),
             React.createElement('div', { className: 'ag-row-reason' }, ev.justification || ev.reason || '(无说明)'),
             ev.args
-              ? React.createElement('div', { className: 'ag-args', title: ev.args }, '参数：' + String(ev.args).slice(0, 240))
+              ? React.createElement('div', { className: 'ag-args', title: ev.args }, T('参数：','Args: ') + String(ev.args).slice(0, 240))
               : null,
             ev.cwd
-              ? React.createElement('div', { className: 'ag-row-meta', title: ev.cwd }, '目录：' + String(ev.cwd).slice(0, 180))
+              ? React.createElement('div', { className: 'ag-row-meta', title: ev.cwd }, T('目录：','Cwd: ') + String(ev.cwd).slice(0, 180))
               : null,
             React.createElement('div', { className: 'ag-row-actions' },
               kind !== 'manual-rejected' && kind !== 'escalate' && kind !== 'shadow-candidate' && ev.mode
@@ -938,7 +944,7 @@ window.__ModuleLoader__.load({
                     disabled: busy,
                     onClick: function () { if (isRemembered) doForget(ev); else doRemember(ev) },
                     title: errored ? ('记住失败：' + ov.slice(6)) : (isRemembered ? '取消记住：删除该操作的白名单规则' : '把这次操作沉淀为白名单规则'),
-                  }, busy ? '处理中…' : (errored ? '重试' : (isRemembered ? '取消记住' : '记住这次操作')))
+                  }, busy ? '处理中…' : (errored ? '重试' : (isRemembered ? T('取消记住','Cancel remember') : T('记住这次操作','Remember this operation'))))
                 : null,
             ),
             files.length > 0
@@ -946,7 +952,7 @@ window.__ModuleLoader__.load({
                   const chipProps = { key: i, className: 'ag-file-chip' }
                   if (hasSnap) {
                     chipProps.className += ' ag-file-chip-snap'
-                    chipProps.title = '查看该文件改动对比'
+                    chipProps.title = T('查看该文件改动对比','View file diff')
                     chipProps.role = 'button'
                     chipProps.tabIndex = 0
                     chipProps.onClick = function () { setDiffOpen({ eventId: ev.id, path: f }) }
@@ -963,11 +969,11 @@ window.__ModuleLoader__.load({
       }
       return React.createElement('div', { className: 'ag-view' },
         React.createElement('div', { className: 'ag-view-head' },
-          React.createElement('div', { className: 'ag-view-title' }, '自动放行审批'),
+          React.createElement('div', { className: 'ag-view-title' }, T('自动放行审批','Approval audit')),
           React.createElement('div', { className: 'ag-view-sub' }, '本会话审批记录、学习规则与快照（最新在上）'),
         ),
-        React.createElement('div', { className: 'ag-tabbar', role: 'tablist', 'aria-label': '审批视图' },
-          [['records', '记录'], ['settings', '设置']].map(function (t) {
+        React.createElement('div', { className: 'ag-tabbar', role: 'tablist', 'aria-label': T('审批视图','Approval audit') },
+          [['records', T('记录','Records')], ['settings', T('设置','Settings')]].map(function (t) {
             return React.createElement('button', {
               key: t[0], type: 'button',
               className: 'ag-tab' + (viewTab === t[0] ? ' ag-tab-active' : ''),
@@ -979,21 +985,21 @@ window.__ModuleLoader__.load({
         ),
         React.createElement('div', { className: 'ag-records', style: { display: viewTab === 'settings' ? 'none' : 'flex' } },
         React.createElement('div', { className: 'ag-dash-head' },
-          React.createElement('span', { className: 'ag-dash-title' }, '概览'),
+          React.createElement('span', { className: 'ag-dash-title' }, T('概览','Overview')),
           React.createElement('span', { className: 'ag-dash-hint' }, '全部 ' + total + ' 条 · 最近 7 天趋势'),
           React.createElement('span', { style: { flex: '1 1 auto' } }),
           React.createElement('button', {
             type: 'button', className: 'ag-set-btn ag-btn-xs',
             onClick: function () { setDashOpen(!dashOpen) },
-          }, dashOpen ? '收起' : '展开'),
+          }, dashOpen ? T('收起','Collapse') : T('展开','Expand')),
         ),
         React.createElement('div', { className: 'ag-dash', style: { display: dashOpen ? 'flex' : 'none' } },
           React.createElement('div', { className: 'ag-stat-grid' },
-            stat('自动放行', counts.auto, pct(counts.auto) + '% · Flash / 规则'),
-            stat('Shadow 候选', counts.shadow, pct(counts.shadow) + '% · 仅观察'),
-            stat('人工通过', counts.approved, pct(counts.approved) + '%'),
-            stat('已拒绝', counts.rejected, pct(counts.rejected) + '%'),
-            stat('需人工介入', counts.escalate, pct(counts.escalate) + '%'),
+            stat(T('自动放行','Auto-approved'), counts.auto, pct(counts.auto) + '% · Flash / 规则'),
+            stat(T('Shadow 候选','Shadow candidates'), counts.shadow, pct(counts.shadow) + '% · 仅观察'),
+            stat(T('人工通过','Approved by you'), counts.approved, pct(counts.approved) + '%'),
+            stat(T('已拒绝','Rejected'), counts.rejected, pct(counts.rejected) + '%'),
+            stat(T('需人工介入','Needs human attention'), counts.escalate, pct(counts.escalate) + '%'),
           ),
           React.createElement('div', { className: 'ag-dist' },
             React.createElement('div', { className: 'ag-dist-bar' },
@@ -1012,14 +1018,14 @@ window.__ModuleLoader__.load({
             ),
           ),
           React.createElement('div', { className: 'ag-stat-grid' },
-            stat('规则总数', ruleStats.total, '白名单规则'),
+            stat(T('规则总数','Rules'), ruleStats.total, '白名单规则'),
             stat('自学习规则', ruleStats.self, 'Flash SAFE 毕业'),
-            stat('毕业规则', ruleStats.graduated, '人工确认毕业'),
+            stat(T('毕业规则','Graduated'), ruleStats.graduated, '人工确认毕业'),
             stat('信任目录', ruleStats.trust, '免审批目录'),
           ),
           React.createElement('div', { className: 'ag-dash-cols' },
             React.createElement('div', { className: 'ag-panel' },
-              React.createElement('div', { className: 'ag-panel-title' }, '最近 7 天审批趋势'),
+              React.createElement('div', { className: 'ag-panel-title' }, T('最近 7 天审批趋势','7-day approval trend')),
               React.createElement('div', { className: 'ag-trend' },
                 trend.map(function (t) {
                   return React.createElement('div', { className: 'ag-trend-col', key: t.key },
@@ -1031,9 +1037,9 @@ window.__ModuleLoader__.load({
               ),
             ),
             React.createElement('div', { className: 'ag-panel' },
-              React.createElement('div', { className: 'ag-panel-title' }, 'Top 工具'),
+              React.createElement('div', { className: 'ag-panel-title' }, T('Top 工具','Top tools')),
               topTools.length === 0
-                ? React.createElement('div', { className: 'ag-set-empty' }, '暂无数据')
+                ? React.createElement('div', { className: 'ag-set-empty' }, T('暂无数据','No data'))
                 : React.createElement('div', { className: 'ag-top' },
                     topTools.map(function (t) {
                       return React.createElement('div', { className: 'ag-top-row', key: t.tool },
@@ -1047,7 +1053,7 @@ window.__ModuleLoader__.load({
           ),
           projectStats
             ? React.createElement('div', { className: 'ag-panel ag-project-panel' },
-                React.createElement('div', { className: 'ag-panel-title' }, '按项目 / 目录（全部会话）'),
+                React.createElement('div', { className: 'ag-panel-title' }, T('按项目 / 目录（全部会话）','By project / directory (all sessions)')),
                 projectStats.projects.length === 0
                   ? React.createElement('div', { className: 'ag-set-empty' }, '暂无带目录的审批记录')
                   : React.createElement('div', { className: 'ag-project-list' },
@@ -1071,7 +1077,7 @@ window.__ModuleLoader__.load({
         (counts.rejected + counts.escalate) > 0
           ? React.createElement('div', { className: 'ag-attention' },
               React.createElement('span', { className: 'ag-attention-text' },
-                '需要关注：' + (counts.rejected + counts.escalate) + ' 条（拒绝 ' + counts.rejected + ' · 升级 ' + counts.escalate + '）'),
+                T('需要关注：','Attention: ') + (counts.rejected + counts.escalate) + ' 条（拒绝 ' + counts.rejected + ' · 升级 ' + counts.escalate + '）'),
               React.createElement('button', {
                 type: 'button', className: 'ag-chip',
                 onClick: function () { setKindFilter('attention') },
@@ -1095,8 +1101,8 @@ window.__ModuleLoader__.load({
             : null,
           React.createElement('span', { style: { flex: '1 1 auto' } }),
           React.createElement('input', {
-            className: 'ag-set-input ag-search', placeholder: '搜索工具 / 理由 / 参数',
-            'aria-label': '搜索审批记录',
+            className: 'ag-set-input ag-search', placeholder: T('搜索工具 / 理由 / 参数','Search tool / reason / args'),
+            'aria-label': T('搜索审批记录','Search approvals'),
             value: query, onChange: function (e) { setQuery(e.target.value) },
           }),
         ),
@@ -1137,9 +1143,9 @@ window.__ModuleLoader__.load({
           }, '清空全部'),
         ),
         events === null
-          ? React.createElement('div', { className: 'ag-loading' }, '加载中…')
+          ? React.createElement('div', { className: 'ag-loading' }, T('加载中…','Loading…'))
           : filtered.length === 0
-            ? React.createElement('div', { className: 'ag-empty' }, error ? ('加载失败：' + error) : (rows.length === 0 ? '本会话暂无审批记录' : '没有匹配的记录'))
+            ? React.createElement('div', { className: 'ag-empty' }, error ? (T('加载失败：','Load failed: ') + error) : (rows.length === 0 ? T('本会话暂无审批记录','No approvals in this session yet') : T('没有匹配的记录','No matching records')))
             : React.createElement('div', { className: 'ag-list' },
                 groups.map(function (g) {
                   return React.createElement('div', { className: 'ag-group', key: g.day },
@@ -1152,7 +1158,7 @@ window.__ModuleLoader__.load({
         viewTab === 'settings'
           ? React.createElement('div', { className: 'ag-settings-embed' },
               React.createElement('div', { className: 'ag-settings-nav' },
-                React.createElement('div', { className: 'ag-settings-title' }, '自动审批设置'),
+                React.createElement('div', { className: 'ag-settings-title' }, T('自动审批设置','Auto-approval settings')),
                 React.createElement('div', { className: 'ag-settings-chips' },
                   [['setup', '初始化'], ['pipeline', '判定管道'], ['deny', '① DENY'], ['allow', '② 白名单'], ['denyrules', '③ 永久人工'], ['flash', '④ Flash'], ['shadow', 'Shadow'], ['learning', '⑤ 学习'], ['autolearn', '⑥ 自动学习'], ['library', '⑦ 规则库']].map(function (item) {
                     return React.createElement('button', {
@@ -1255,10 +1261,10 @@ window.__ModuleLoader__.load({
           body: JSON.stringify(body),
         }).then(function (r) { return r.json() }).then(function (res) {
           if (res && res.ok) { load(); showFeedback('已生效（热更新，无需重启）'); return res }
-          showFeedback((res && res.error) || '操作失败', false)
+          showFeedback((res && res.error) || T('操作失败','Operation failed'), false)
           return res
         }).catch(function (e) {
-          showFeedback('请求失败：' + String((e && e.message) || e), false)
+          showFeedback(T('请求失败：','Request failed: ') + String((e && e.message) || e), false)
         }).finally(function () { setBusy(false) })
       }
 
@@ -1306,7 +1312,7 @@ window.__ModuleLoader__.load({
 
       if (!snapshot) {
         return React.createElement('div', { className: 'ag-set' },
-          React.createElement('div', { className: error ? 'ag-set-err' : 'ag-set-ok' }, error || '加载中…'))
+          React.createElement('div', { className: error ? 'ag-set-err' : 'ag-set-ok' }, error || T('加载中…','Loading…')))
       }
 
       const cfg = snapshot.config
@@ -1375,7 +1381,7 @@ window.__ModuleLoader__.load({
                     },
                   }).then(function (res) {
                     if (res && res.ok) setEditingRule(null)
-                    else setEditError((res && res.error) || '保存失败')
+                    else setEditError((res && res.error) || T('保存失败','Save failed'))
                   })
                 },
               }, '保存'),
@@ -1765,7 +1771,7 @@ window.__ModuleLoader__.load({
                 if (rule.contains) parts.push('contains=' + rule.contains)
                 if (rule.signature) parts.push('sig=' + String(rule.signature).split('|').slice(2).join('|'))
                 const actions = []
-                if (rule.evidenceEventId) actions.push(React.createElement('button', { key: 'e', type: 'button', className: 'ag-set-btn ag-btn-xs', title: '复制触发该规则的事件 ID', onClick: function () { copyText(rule.evidenceEventId) } }, '证据 #' + rule.evidenceEventId))
+                if (rule.evidenceEventId) actions.push(React.createElement('button', { key: 'e', type: 'button', className: 'ag-set-btn ag-btn-xs', title: T('复制触发该规则的事件 ID','Copy triggering event ID'), onClick: function () { copyText(rule.evidenceEventId) } }, '证据 #' + rule.evidenceEventId))
                 if (!rule.signature) actions.push(React.createElement('button', { key: 'm', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { beginEdit('allowRules', rule) } }, '编辑'))
                 actions.push(React.createElement('button', { key: 't', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'toggle', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) } }, rule.disabled ? '启用' : '停用'))
                 actions.push(React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则', onClick: function () { api({ op: 'remove', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) } }, '✕'))
