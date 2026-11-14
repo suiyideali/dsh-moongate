@@ -97,6 +97,8 @@ dsh plugin --profile desktop add github:suiyideali/dsh-moongate
 dsh plugin --profile desktop add dsh-moongate
 ```
 
+> 从上游迁移：先卸载/禁用 `dsh-approval-gate`，再安装 `dsh-moongate`，避免两个插件同时抢 `approval/request`。两者共用 `~/.dsh/auto-approve/` 数据目录，学习记录不会丢。
+
 ### 方式二：给上游包打补丁
 
 如果你已经在用上游 `dsh-approval-gate@0.5.0`，可以只应用完整 diff（`patches/`）：
@@ -116,6 +118,8 @@ cp patches/dsh-approval-gate@0.5.0.patch ~/.dsh/profiles/desktop/patches/
 cd ~/.dsh/profiles/desktop
 pnpm install
 ```
+
+> 补丁方式保留上游包名与内部 id（`dsh-approval-gate`），适合已经安装上游的人；不要和 fork 包 `dsh-moongate` 同时安装。数据目录同为 `~/.dsh/auto-approve`。
 
 ### 配置权限预设（两种方式都需要）
 

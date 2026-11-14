@@ -87,6 +87,8 @@ dsh plugin --profile desktop add github:suiyideali/dsh-moongate
 # dsh plugin --profile desktop add dsh-moongate
 ```
 
+> Migrating from upstream: uninstall/disable `dsh-approval-gate` first, then install `dsh-moongate`, so the two do not compete for `approval/request`. Both share `~/.dsh/auto-approve/`, so learning data is preserved.
+
 ### Option 2: patch the upstream package
 
 ```sh
@@ -98,6 +100,8 @@ cp patches/dsh-approval-gate@0.5.0.patch ~/.dsh/profiles/desktop/patches/
 cd ~/.dsh/profiles/desktop
 pnpm install
 ```
+
+> The patch option keeps the upstream package name and internal id (`dsh-approval-gate`), for people already on upstream; do not install it alongside the fork package `dsh-moongate`. Both use `~/.dsh/auto-approve/`.
 
 ### Permission preset (required for both)
 
