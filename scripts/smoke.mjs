@@ -327,6 +327,28 @@ assert.match(unsafe.json.error, /danger-full-access/, 'unsafe edit explains dang
 const afterEdit = await callApi('/api/auto-approve/rules', 'GET')
 assert.equal(afterEdit.json.config.allowRules.find((rule) => rule.id === editable.id).description, 'inline edit test', 'inline edit persisted')
 
+// Shadow 候选分组：两次同命令/同目录候选应聚合，并给出命令规则建议。
+for (const id of [9001, 9002]) {
+  appendFileSync(eventsPath, JSON.stringify({
+    id, ts: Date.now(), sessionId: 'suggest-test', tool: 'bash', mode: 'workspace-write',
+    category: 'neutral', kind: 'shadow-candidate', wouldPath: 'flash-safe',
+    commandPattern: 'npm test', cwd, justification: 'npm test'
+  }) + '\n')
+}
+const suggestions = await callApi('/api/auto-approve/shadow-suggestions', 'GET')
+assert.equal(suggestions.status, 200, 'shadow suggestions endpoint')
+assert.ok(suggestions.json.ok, 'shadow suggestions ok')
+const group = suggestions.json.groups.find((g) => g.commandPattern === 'npm test' && g.cwd === cwd)
+assert.ok(group, 'shadow suggestions groups same command')
+assert.ok(group.count >= 2, 'shadow suggestions counts candidates')
+assert.equal(group.suggestion && group.suggestion.commandPattern, 'npm test', 'shadow suggestion is command-aware')
+assert.equal(group.suggestion && group.suggestion.cwdPrefix, cwd, 'shadow suggestion scopes cwd')
+const addSuggestion = await callApi('/api/auto-approve/rules', 'POST', { op: 'add', kind: 'allowRules', value: group.suggestion })
+assert.equal(addSuggestion.status, 200, 'shadow suggestion can be added as a rule')
+assert.ok(addSuggestion.json.ok, 'shadow suggestion rule accepted')
+const addedRule = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules.find((r) => r.commandPattern === 'npm test' && r.cwdPrefix === cwd)
+assert.ok(addedRule, 'shadow suggestion rule persists')
+
 // 项目统计：按 cwd 聚合；历史无 cwd 归入“未知目录”。
 appendFileSync(eventsPath, JSON.stringify({ id: 9999, ts: Date.now(), tool: 'old', mode: 'workspace-write', verdict: 'rule', kind: 'auto' }) + '\n')
 const projectStats = await callApi('/api/auto-approve/project-stats', 'GET')

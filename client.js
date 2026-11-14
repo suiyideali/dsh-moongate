@@ -122,6 +122,11 @@ window.__ModuleLoader__.load({
 .ag-set-item-del{flex:none;width:24px;height:24px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:transparent;border:none;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:0}
 .ag-set-item-del:hover{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}
 .ag-set-empty{color:var(--dsw-alias-label-caption);margin:0;font-size:13px;line-height:20px;padding:4px 2px}
+.ag-set-suggest-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}
+.ag-set-suggest-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.ag-set-suggest{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
+.ag-set-suggest-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ag-set-suggest-main code{font-size:12px;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
 .ag-set-tag{box-sizing:border-box;flex:none;height:18px;border-radius:9px;align-items:center;padding:0 8px;font-size:11px;line-height:18px;display:inline-flex;letter-spacing:.02em}
 .ag-set-tag-blue{color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-tertiary)}
 .ag-set-tag-green{color:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-state-success-tertiary)}
@@ -1305,6 +1310,14 @@ window.__ModuleLoader__.load({
       const [promotionSessions, setPromotionSessions] = React.useState('2')
       const [graduationThreshold, setGraduationThreshold] = React.useState('3')
       const [graduationSessions, setGraduationSessions] = React.useState('2')
+      const [shadowSuggestions, setShadowSuggestions] = React.useState({ groups: [], total: 0 })
+
+      const loadShadowSuggestions = function () {
+        fetch('/api/auto-approve/shadow-suggestions', { headers: { 'cache-control': 'no-cache' } })
+          .then(function (r) { return r.json() })
+          .then(function (data) { if (data && data.ok) setShadowSuggestions({ groups: data.groups || [], total: data.total || 0 }) })
+          .catch(function () { /* 建议是可选的，失败不阻塞设置 */ })
+      }
 
       const load = function () {
         fetch('/api/auto-approve/rules', { headers: { 'cache-control': 'no-cache' } })
@@ -1328,7 +1341,7 @@ window.__ModuleLoader__.load({
           })
           .catch(function (e) { setError('加载规则失败：' + String((e && e.message) || e)) })
       }
-      React.useEffect(function () { load() }, [])
+      React.useEffect(function () { load(); loadShadowSuggestions() }, [])
 
       const showFeedback = function (msg, ok) {
         setFeedback({ msg: String(msg), ok: ok !== false })
@@ -1342,7 +1355,7 @@ window.__ModuleLoader__.load({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
         }).then(function (r) { return r.json() }).then(function (res) {
-          if (res && res.ok) { load(); showFeedback('已生效（热更新，无需重启）'); return res }
+          if (res && res.ok) { load(); loadShadowSuggestions(); showFeedback('已生效（热更新，无需重启）'); return res }
           showFeedback((res && res.error) || T('操作失败','Operation failed'), false)
           return res
         }).catch(function (e) {
@@ -1688,6 +1701,25 @@ window.__ModuleLoader__.load({
             React.createElement('span', { className: 'ag-set-item-meta' },
               '提示：候选记录在「记录」页的 Shadow 筛选中查看；确认候选足够可信后再关闭观察。'),
           ),
+          React.createElement('div', { className: 'ag-set-suggest-head' },
+            React.createElement('span', { className: 'ag-set-item-meta' }, 'Shadow 候选分组（≥2 次）'),
+            React.createElement('span', { className: 'ag-set-item-meta' }, shadowSuggestions.groups.length + ' 组 · ' + shadowSuggestions.total + ' 条')),
+          shadowSuggestions.groups.length === 0
+            ? React.createElement('div', { className: 'ag-set-empty' }, '暂无重复候选；继续观察一段时间。')
+            : React.createElement('div', { className: 'ag-set-suggest-list' },
+                shadowSuggestions.groups.map(function (g) {
+                  const label = g.commandPattern || g.sampleJustification || '(无描述)'
+                  return React.createElement('div', { className: 'ag-set-suggest', key: g.key },
+                    React.createElement('div', { className: 'ag-set-suggest-main' },
+                      React.createElement('code', null, label),
+                      React.createElement('span', { className: 'ag-set-item-meta' }, g.count + ' 次 · ' + (g.wouldPath || 'candidate') + (g.cwd ? ' · ' + g.cwd : ''))),
+                    g.suggestion
+                      ? React.createElement('button', {
+                          type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy,
+                          onClick: function () { api({ op: 'add', kind: 'allowRules', value: g.suggestion }) },
+                        }, '创建规则')
+                      : React.createElement('span', { className: 'ag-set-item-meta' }, '已有规则路径，无需建议'))
+                })),
         ),
 
         // ---- 学习状态（⑤ 学习沉淀） ----

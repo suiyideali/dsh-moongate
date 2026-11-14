@@ -78,6 +78,52 @@ function aggregateProjectStats(events) {
   return { projects: projects.slice(0, 24), total: projects.reduce((n, p) => n + p.total, 0), projectCount: projects.length }
 }
 
+function aggregateShadowSuggestions(events) {
+  const buckets = new Map()
+  for (const ev of Array.isArray(events) ? events : []) {
+    if (!ev || ev.kind !== 'shadow-candidate') continue
+    const wouldPath = String(ev.wouldPath || ev.path || 'unknown')
+    const cwd = typeof ev.cwd === 'string' ? ev.cwd.trim() : ''
+    const commandPattern = String(ev.commandPattern || '')
+    const key = [wouldPath, ev.tool || '', ev.mode || '', ev.category || '', commandPattern, cwd].join('\u0000')
+    let b = buckets.get(key)
+    if (!b) {
+      b = {
+        key,
+        wouldPath,
+        tool: ev.tool || '',
+        mode: ev.mode || '',
+        category: ev.category || '',
+        commandPattern,
+        cwd,
+        count: 0,
+        lastTs: 0,
+        sampleJustification: String(ev.justification || ev.reason || '').slice(0, 160),
+        suggestion: null,
+      }
+      buckets.set(key, b)
+    }
+    b.count += 1
+    if (Number(ev.ts) > b.lastTs) b.lastTs = Number(ev.ts) || 0
+    if (!b.suggestion) {
+      // 已有规则/学习路径的候选不需要再建议；trust/session-memory 也不自动转规则，保持保守。
+      if (['flash-safe', 'semantic'].includes(wouldPath) || (wouldPath === 'trust' && commandPattern)) {
+        if (commandPattern && cwd) {
+          b.suggestion = buildRule(ev.tool, ev.mode, ev.category, commandPattern, { eligible: true, pattern: commandPattern, cwd: cwd.replace(/\/+$/, '') }, 'Shadow 观察候选：同一命令与目录', 'shadow-suggestion')
+        } else {
+          const fp = extractOperationFingerprint(ev.justification || '')
+          if (fp && /[\/~]/.test(fp)) b.suggestion = buildRule(ev.tool, ev.mode, ev.category, fp, null, 'Shadow 观察候选：同一路径指纹', 'shadow-suggestion')
+        }
+      }
+    }
+  }
+  const groups = Array.from(buckets.values())
+    .filter((g) => g.count >= 2)
+    .sort((a, b) => b.count - a.count || b.lastTs - a.lastTs)
+    .slice(0, 24)
+  return { groups, total: groups.reduce((n, g) => n + g.count, 0), candidateCount: groups.length }
+}
+
 /** 判定文本文件（跳过二进制/图片等） */
 const SNAPSHOT_BINARY_RE = /[\x00-\x08\x0e-\x1f]/
 function isSnapshotText(buf) {
@@ -1565,6 +1611,34 @@ export default {
       }
     } catch (error) {
       console.error(`[${NAME}] 注册项目统计 API 失败`, error)
+    }
+
+    // ---- Shadow 候选聚合与规则建议（只读 events.jsonl；不自动建规则） ----
+    let offShadowSuggestionsRoute = null
+    try {
+      if (ctx.webServer && typeof ctx.webServer.register === 'function') {
+        offShadowSuggestionsRoute = ctx.webServer.register({
+          kind: 'exact',
+          path: '/api/auto-approve/shadow-suggestions',
+          handler: async (req, res) => {
+            if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return }
+            const events = []
+            try {
+              const text = readFileSync(EVENTS_PATH, 'utf8')
+              for (const line of text.split('\n')) {
+                if (!line.trim()) continue
+                try { events.push(JSON.parse(line)) } catch { /* 跳过坏行 */ }
+              }
+            } catch { /* 文件不存在：返回空 */ }
+            const result = aggregateShadowSuggestions(events)
+            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-cache' })
+            res.end(JSON.stringify(Object.assign({ ok: true }, result)))
+          },
+        })
+        console.log(`[${NAME}] Shadow 建议 API 已注册：/api/auto-approve/shadow-suggestions`)
+      }
+    } catch (error) {
+      console.error(`[${NAME}] 注册 Shadow 建议 API 失败`, error)
     }
 
     // ---- 规则管理 API（设置页：查看/修改放行与阻塞规则 + 一键初始化） ----
