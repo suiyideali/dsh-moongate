@@ -411,6 +411,7 @@ function getRulesSnapshot() {
       graduationSessions: config.graduationSessions || 2,
       twoStage: config.twoStage === true,
       shadow: config.shadow === true,
+      semanticReuse: config.semanticReuse === true,
       denyEscalateConsecutive: config.denyEscalateConsecutive || 3,
       denyEscalateTotal: config.denyEscalateTotal || 20,
       stage1Provider: config.stage1Provider || '',
@@ -545,6 +546,13 @@ function applyRuleOp(op, kind, value) {
     config.sessionMemory = value !== false
     saveJson(ALLOWLIST_PATH, config)
     return { ok: true, set: true, value: config.sessionMemory }
+  }
+
+  if (kind === 'semanticReuse') {
+    if (op !== 'set') return { ok: false, error: 'semanticReuse 使用 set 操作' }
+    config.semanticReuse = value === true
+    saveJson(ALLOWLIST_PATH, config)
+    return { ok: true, set: true, value: config.semanticReuse }
   }
   if (kind === 'graduation') {
     if (op !== 'remove') return { ok: false, error: 'graduation 仅支持 remove' }
@@ -751,6 +759,7 @@ function normalizeConfig(raw) {
   cfg.graduationSessions = Number.isFinite(cfg.graduationSessions) && cfg.graduationSessions > 0 ? cfg.graduationSessions : 2
   cfg.twoStage = cfg.twoStage === true
   cfg.shadow = cfg.shadow === true
+  cfg.semanticReuse = cfg.semanticReuse === true
   cfg.denyEscalateConsecutive = Number.isFinite(cfg.denyEscalateConsecutive) && cfg.denyEscalateConsecutive > 0 ? cfg.denyEscalateConsecutive : 3
   cfg.denyEscalateTotal = Number.isFinite(cfg.denyEscalateTotal) && cfg.denyEscalateTotal > 0 ? cfg.denyEscalateTotal : 20
   cfg.stage1Provider = typeof cfg.stage1Provider === 'string' ? cfg.stage1Provider : ''
@@ -781,6 +790,7 @@ if (!config || typeof config !== 'object') {
     graduationSessions: 2,
     twoStage: false,
     shadow: false,
+    semanticReuse: false,
     denyEscalateConsecutive: 3,
     denyEscalateTotal: 20,
     stage1Provider: '',
@@ -2118,6 +2128,22 @@ export default {
         //     （同一 key 被用户确认 N 次后视为可信，后续自动放行并写入沉淀规则）
         const threshold = config.riskyThreshold || 3
         const confirmed = learning.stats[key] || 0
+
+        // 4f-1. 语义近似复用（opt-in）：只要有过至少一次人工批准，就用 Flash 对“同类操作”做 SAME/DIFFERENT 验证。
+        // 只作用于 neutral；SAME 直接放行，但不沉淀规则、不改变计数/样本，避免一次批准被永久放大。
+        if (config.semanticReuse === true && confirmed >= 1 && confirmed < threshold) {
+          const samples = learning.history[key] || []
+          if (samples.length > 0) {
+            const sim = await verifySimilarityWithRetry(toolName, mode, justification, samples)
+            if (sim.verdict === 'same') {
+              if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'semantic')
+              audit(`SEMANTIC ${toolName} mode=${mode || 'none'} category=${cat} 一次批准后语义判同类 → 放行 | ${reason.slice(0, 100)}`)
+              recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-same', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, path: 'semantic' })
+              return 'allowed-once'
+            }
+            audit(`SIMDIFF ${toolName} mode=${mode || 'none'} category=${cat} 语义复用判不同类 → 人工 | ${reason.slice(0, 120)}`)
+          }
+        }
 
         if (confirmed >= threshold) {
           const fingerprint = extractOperationFingerprint(justification)

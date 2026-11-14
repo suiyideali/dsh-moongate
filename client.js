@@ -238,7 +238,8 @@ window.__ModuleLoader__.load({
       'flash-safe': 'Flash SAFE',
       learned: '沉淀规则',
       fpHit: '已确认操作',
-      'flash-same': '同类验证'
+      'flash-same': '同类验证',
+      semantic: '语义复用'
     }
     const HARD_CATEGORIES = new Set(['deletion', 'credential', 'remote', 'system', 'bulk'])
 
@@ -1664,6 +1665,9 @@ window.__ModuleLoader__.load({
             field('两段式判定',
               React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'twoStage', value: !(cfg.twoStage === true) }) } }, cfg.twoStage === true ? '开' : '关'),
               '快筛 + 复评；当前快筛模型偏保守，默认关'),
+            field('语义近似复用',
+              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'semanticReuse', value: !(cfg.semanticReuse === true) }) } }, cfg.semanticReuse === true ? '开' : '关'),
+              '一次人工批准后，同类操作由 Flash 语义验证；默认关，不沉淀规则'),
             field('自学习',
               React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'selfLearn', value: !(cfg.selfLearn === true) }) } }, cfg.selfLearn === true ? '开' : '关'),
               '从 Flash 连续 SAFE 判定毕业（无人工确认）'),

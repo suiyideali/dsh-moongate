@@ -210,7 +210,7 @@ Eight configuration cards:
 | ④ Flash | `riskyThreshold`, `judgeTimeoutMs` |
 | Shadow | Observation toggle; candidates are recorded, not auto-approved |
 | ⑤ Learning | Keys currently learning and their progress |
-| ⑥ Auto learning | Session memory, promotion, graduation, self-learning, two-stage |
+| ⑥ Auto learning | Session memory, promotion, graduation, self-learning, two-stage, semantic reuse |
 | ⑦ Rule library | Unified rule management + inline editing + health check + export |
 
 > **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
@@ -274,6 +274,7 @@ Everything lives in `~/.dsh/auto-approve/`; edits to `allowlist.json` are hot-re
 | `selfLearnMaxRules` | 50 | Self-learned rule cap |
 | `twoStage` | false | Two-stage judging switch |
 | `shadow` | false | Shadow observation mode; candidates are recorded but not auto-approved |
+| `semanticReuse` | false | After one manual approval, semantically verify similar neutral operations with Flash; no rule sedimentation |
 | `stage1Provider` / `stage1Model` | empty | Fast-screen model |
 | `denyEscalateConsecutive` | 3 | Consecutive rejection escalation |
 | `denyEscalateTotal` | 20 | Total rejection escalation |

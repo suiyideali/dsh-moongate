@@ -39,12 +39,14 @@ writeFileSync(allowlistPath, JSON.stringify({
 }), 'utf8')
 
 let flashReply = 'SAFE'
+let flashQueue = []
 const handlers = new Map()
 const routes = new Map()
 const ctx = {
   llm: {
     stream: async function* () {
-      yield { type: 'text-delta', text: flashReply }
+      const text = flashQueue.length ? flashQueue.shift() : flashReply
+      yield { type: 'text-delta', text }
       yield { type: 'finish', reason: { kind: 'stop' } }
     }
   },
@@ -151,6 +153,68 @@ assert.equal(learnedCandidate.wouldPath, 'learned', 'learned candidate path')
 assert.equal(learnedCandidate.cwd, cwd, 'learned candidate records cwd')
 assert.equal(learnedEvents.filter((ev) => ev.kind === 'auto').length, autoBeforeFlash, 'learned shadow writes no auto event')
 assert.equal(JSON.parse(readFileSync(allowlistPath, 'utf8')).allowRules[0].hitCount || 0, 0, 'learned shadow does not touch hit count')
+
+// 语义近似复用：一次人工批准后，同类操作由 Flash SAME 放行；DIFFERENT 仍转人工；不沉淀规则。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  semanticReuse: true,
+  riskyThreshold: 3,
+  allowRules: []
+}), 'utf8')
+const semanticRequest = (sid, file) => ({
+  ...request,
+  agent: { session: { id: sid, cwd } },
+  reason: 'escalate sandbox to workspace-write: write ' + join(cwd, file),
+})
+flashQueue = ['RISKY:neutral', 'RISKY:neutral', 'SAME', 'RISKY:neutral', 'DIFFERENT']
+nextCalls = 0
+const firstOut = await approval(semanticRequest('semantic-1', 'alpha.txt'), nextAllowed)
+assert.equal(firstOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'first neutral request asks the human once')
+const learningAfterFirst = JSON.parse(readFileSync(learningPath, 'utf8'))
+const neutralKey = 'write|workspace-write|neutral'
+assert.equal(learningAfterFirst.stats[neutralKey], 1, 'first approval records one neutral sample')
+assert.equal((learningAfterFirst.history[neutralKey] || []).length, 1, 'one sample is stored')
+
+nextCalls = 0
+const secondOut = await approval(semanticRequest('semantic-2', 'beta.txt'), nextAllowed)
+assert.equal(secondOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'semantic SAME auto-allows without human')
+const semanticEvents = readEvents()
+const semanticAuto = semanticEvents.filter((ev) => ev.kind === 'auto' && ev.path === 'semantic').pop()
+assert.ok(semanticAuto, 'semantic auto event recorded')
+assert.equal(semanticAuto.verdict, 'flash-same')
+assert.equal(JSON.parse(readFileSync(allowlistPath, 'utf8')).allowRules.length, 0, 'semantic reuse does not sediment a rule')
+assert.equal(JSON.parse(readFileSync(learningPath, 'utf8')).stats[neutralKey], 1, 'semantic reuse keeps the one-sample count')
+
+nextCalls = 0
+const thirdOut = await approval(semanticRequest('semantic-3', 'gamma.txt'), nextAllowed)
+assert.equal(thirdOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'semantic DIFFERENT falls back to human')
+
+// Shadow 下的语义复用：只记录 wouldPath=semantic 候选，仍转人工。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  semanticReuse: true,
+  shadow: true,
+  riskyThreshold: 3,
+  allowRules: []
+}), 'utf8')
+flashQueue = ['RISKY:neutral', 'SAME']
+nextCalls = 0
+const semanticShadowOut = await approval(semanticRequest('semantic-shadow', 'delta.txt'), nextAllowed)
+assert.equal(semanticShadowOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'semantic shadow still asks the human')
+const semanticShadowEvents = readEvents()
+const semanticShadowCandidate = semanticShadowEvents.filter((ev) => ev.kind === 'shadow-candidate' && ev.wouldPath === 'semantic').pop()
+assert.ok(semanticShadowCandidate, 'semantic shadow candidate recorded')
+assert.equal(semanticShadowCandidate.cwd, cwd)
+
+// 行内编辑需要一个已有规则作为编辑对象。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  allowRules: [{ mode: 'workspace-write', description: 'inline base rule' }]
+}), 'utf8')
 
 // 行内编辑：快照带稳定 id；set 可更新描述；危险的 danger-full-access 无条件规则被拒绝。
 const rulesRes = await callApi('/api/auto-approve/rules', 'GET')
