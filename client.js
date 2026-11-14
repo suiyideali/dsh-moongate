@@ -990,6 +990,9 @@ window.__ModuleLoader__.load({
               React.createElement('span', { className: 'ag-time' }, fmtTime(ev.ts)),
             ),
             React.createElement('div', { className: 'ag-row-reason' }, ev.justification || ev.reason || '(无说明)'),
+            ev.commandPattern
+              ? React.createElement('div', { className: 'ag-args', title: ev.commandPattern }, T('命令：','Command: ') + ev.commandPattern)
+              : null,
             ev.args
               ? React.createElement('div', { className: 'ag-args', title: ev.args }, T('参数：','Args: ') + String(ev.args).slice(0, 240))
               : null,
@@ -1840,20 +1843,22 @@ window.__ModuleLoader__.load({
             const hit = function (text) { return q === '' || String(text || '').toLowerCase().indexOf(q) >= 0 }
             const empty = function (text) { return React.createElement('div', { className: 'ag-set-empty' }, text) }
             if (libTab === 'allow') {
-              const rules = (cfg.allowRules || []).filter(function (r) { return hit([r.tool, r.mode, r.category, r.contains, r.description, r.signature].join(' ')) })
+              const rules = (cfg.allowRules || []).filter(function (r) { return hit([r.tool, r.mode, r.category, r.contains, r.description, r.signature, r.commandPattern, r.cwdPrefix].join(' ')) })
               if (rules.length === 0) return empty('没有匹配的白名单规则')
               return React.createElement('div', { className: 'ag-set-list' }, rules.map(function (rule, idx) {
                 const parts = []
                 if (rule.tool) parts.push('tool=' + rule.tool)
                 if (rule.mode) parts.push('mode=' + rule.mode)
                 if (rule.category) parts.push('category=' + rule.category)
+                if (rule.commandPattern) parts.push('cmd=' + rule.commandPattern)
+                if (rule.cwdPrefix) parts.push('cwd=' + rule.cwdPrefix)
                 if (rule.contains) parts.push('contains=' + rule.contains)
                 if (rule.signature) parts.push('sig=' + String(rule.signature).split('|').slice(2).join('|'))
                 const actions = []
                 if (rule.evidenceEventId) actions.push(React.createElement('button', { key: 'e', type: 'button', className: 'ag-set-btn ag-btn-xs', title: T('复制触发该规则的事件 ID','Copy triggering event ID'), onClick: function () { copyText(rule.evidenceEventId) } }, '证据 #' + rule.evidenceEventId))
                 if (!rule.signature) actions.push(React.createElement('button', { key: 'm', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { beginEdit('allowRules', rule) } }, '编辑'))
-                actions.push(React.createElement('button', { key: 't', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'toggle', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) } }, rule.disabled ? '启用' : '停用'))
-                actions.push(React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则', onClick: function () { api({ op: 'remove', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) } }, '✕'))
+                actions.push(React.createElement('button', { key: 't', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'toggle', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature, commandPattern: rule.commandPattern, cwdPrefix: rule.cwdPrefix } }) } }, rule.disabled ? '启用' : '停用'))
+                actions.push(React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则', onClick: function () { api({ op: 'remove', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature, commandPattern: rule.commandPattern, cwdPrefix: rule.cwdPrefix } }) } }, '✕'))
                 const tags = [RULE_SOURCE_TAGS[ruleSource(rule)] || RULE_SOURCE_TAGS.default]
                 if (rule.disabled) tags.push(React.createElement('span', { key: 'x', className: 'ag-set-tag ag-set-tag-gray' }, '已停用'))
                 tags.push(React.createElement('span', { key: 'h', className: 'ag-set-item-meta' }, '命中 ' + (rule.hitCount || 0) + ' 次' + (rule.lastHit ? ' · 最近 ' + new Date(rule.lastHit).toLocaleString() : '')))
@@ -1862,18 +1867,20 @@ window.__ModuleLoader__.load({
               }))
             }
             if (libTab === 'deny') {
-              const rules = (cfg.denyRules || []).filter(function (r) { return hit([r.tool, r.mode, r.category, r.contains, r.description].join(' ')) })
+              const rules = (cfg.denyRules || []).filter(function (r) { return hit([r.tool, r.mode, r.category, r.contains, r.description, r.commandPattern, r.cwdPrefix].join(' ')) })
               if (rules.length === 0) return empty('没有匹配的永久人工规则')
               return React.createElement('div', { className: 'ag-set-list' }, rules.map(function (rule, idx) {
                 const parts = []
                 if (rule.tool) parts.push('tool=' + rule.tool)
                 if (rule.mode) parts.push('mode=' + rule.mode)
                 if (rule.category) parts.push('category=' + rule.category)
+                if (rule.commandPattern) parts.push('cmd=' + rule.commandPattern)
+                if (rule.cwdPrefix) parts.push('cwd=' + rule.cwdPrefix)
                 if (rule.contains) parts.push('contains=' + rule.contains)
                 const actions = [
                   React.createElement('button', { key: 'm', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { beginEdit('denyRules', rule) } }, '编辑'),
-                  React.createElement('button', { key: 't', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'toggle', kind: 'denyRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains } }) } }, rule.disabled ? '启用' : '停用'),
-                  React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则', onClick: function () { api({ op: 'remove', kind: 'denyRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains } }) } }, '✕'),
+                  React.createElement('button', { key: 't', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'toggle', kind: 'denyRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, commandPattern: rule.commandPattern, cwdPrefix: rule.cwdPrefix } }) } }, rule.disabled ? '启用' : '停用'),
+                  React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则', onClick: function () { api({ op: 'remove', kind: 'denyRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, commandPattern: rule.commandPattern, cwdPrefix: rule.cwdPrefix } }) } }, '✕'),
                 ]
                 const tags = [rule.disabled ? React.createElement('span', { key: 'x', className: 'ag-set-tag ag-set-tag-gray' }, '已停用') : null].filter(Boolean)
                 if (editingRule && editingRule.kind === 'denyRules' && editingRule.id === rule.id) return ruleEditor(rule)

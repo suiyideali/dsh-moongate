@@ -63,6 +63,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Flash judging** | `DENY → trust roots / session memory / allowlist → Flash (SAFE / hard category / neutral) → learning` |
 | **Real tool-call input** | Resolves `callId` to the actual `tool/call` arguments (redacted, truncated to 4 KB) |
 | **Confirmation learning** | Neutral operations auto-approve after the threshold; fingerprint hits and semantic same-class verification |
+| **Command-intent learning** | Extracts safe command intents from real bash arguments (`git status`, `npm test`, `gh pr view`, …) and binds them to cwd; `npm test` and `npm publish` no longer share a learning key, and unrecognized commands never enter learning |
 | **Remember / forget** | One click in the approval view; path fingerprint when available, exact-description matching otherwise; reversible |
 | **Trust roots** | Configure once; operations inside a directory prefix need no prompt |
 | **Session memory** | The same fingerprint approved once in a session repeats without prompting |
@@ -180,14 +181,14 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 | Area | What it shows | Question it answers |
 | --- | --- | --- |
 | **Needs attention** | Rejected + escalated summary (only shown when such records exist), with a "show only these" action | Is there anything I need to handle? |
-| **Overview** (collapsed by default, expandable) | Five stat cards: auto / Shadow / manual / rejected / needs-human, with percentages | What is the approval mix in this session? |
+| **Overview** (expanded by default, collapsible) | Five stat cards: auto / Shadow / manual / rejected / needs-human, with percentages | What is the approval mix in this session? |
 | | Four-segment distribution bar + rule overview: total / self-learned / graduated / trust roots | How much is automated, and how much has been learned? |
 | | 7-day approval trend + top tools | When, and with which tools, do approvals happen? |
 | | Per-project/directory aggregation (all sessions): name, path, auto-rate bar, total/auto/rejected/Shadow | Which projects trigger approvals most, and how automated are they? |
 | **Filters** | All / auto / manual / rejected / escalated / attention chips + search over tool, reason and arguments | Find a class of records quickly |
 | **Timeline** | Date-grouped rows with tool, verdict tag, time, reason, real arguments, remember/forget, files and diff snapshots | What exactly happened, why was it allowed, and can I undo it? |
 
-> The overview is collapsed by default so the timeline comes first; expand it for the full stats. Rows with a snapshot show "已保留改动快照 · 可在下方 diff 中撤销", keeping the undo path next to the decision.
+> The overview is expanded by default so the stats come first; collapse it to prioritize the timeline. Rows with a snapshot show "已保留改动快照 · 可在下方 diff 中撤销", keeping the undo path next to the decision.
 
 ![Approval view schematic (Records tab, overview expanded)](docs/approval-view.svg)
 
@@ -245,6 +246,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | Remember (manual) | "Remember this operation" | Global rule | Available |
 | Trust roots | Explicit configuration | Directory prefix | Empty |
+| Command intent | Safe command + cwd from real bash arguments | Same command and directory | On (conservative) |
 | Session memory | Manual approvals in this session | Session | On |
 | Cross-session promotion | Manual approvals in multiple sessions | Global rule | On (2 sessions) |
 | Signature graduation | Repeated manual approvals of similar ops | Global rule | On (3 / 2 sessions) |
@@ -315,7 +317,8 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 - [x] Semantic reuse (Flash verifies similar operations after one approval; allows only the current operation);
 - [x] Shadow mode: record "would auto-approve" candidates before enabling;
 - [x] Per-project stats (all sessions, unknown-directory fallback);
-- [x] i18n (follows the browser language; main UI in Chinese/English).
+- [x] i18n (follows the browser language; main UI in Chinese/English);
+- [x] Command-intent learning (safe bash commands + cwd get separate counters/rules; unrecognized commands are not learned).
 
 ## FAQ
 
