@@ -68,5 +68,14 @@
 
 ## 5. 语义近似复用
 
-- 在 Shadow 数据上评估误放行率，再决定是否默认开启。
-- 保留人工确认阈值和硬风险类别；语义复用只作用于中立类别，不绕过 DENY/硬风险。
+- 配置 `semanticReuse: false`（默认关，设置页 ⑥ 可开）。
+- 仅在中立类别、已有至少一次人工确认样本、且未达到确认阈值时触发。
+- 调 `verifySimilarityWithRetry`：`SAME` → 放行当前操作（`flash-same`，事件 `path:"semantic"`）；`DIFFERENT`/失败 → 转人工。
+- 不写规则、不改变确认计数/样本；Shadow 开启时只记录 `wouldPath:"semantic"` 候选。
+- 硬风险类别、DENY、denyRules、信任目录等优先级不变。
+
+**验收**
+
+- 一次批准后，相似操作 Flash `SAME` 自动放行，`next()` 不被调用；`DIFFERENT` 仍转人工。
+- 不新增 allowRules，不改变 `learning.stats`/样本；Shadow 下只写候选。
+- `npm test` 覆盖 SAME/DIFFERENT/无样本/Shadow 路径。
