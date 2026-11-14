@@ -70,7 +70,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Signature graduation** | Similar operations graduate into rules after enough manual confirmations (multi-fingerprint, 2 sessions) |
 | **Self-learning (opt-in)** | Graduates signatures from consecutive Flash `SAFE` verdicts without human confirmation; off by default |
 | **Negative feedback** | Rejecting or reverting removes the learned rule/memory and makes the pattern permanent manual |
-| **Rule library** | Allow/deny/trust/graduation in one place; search, enable/disable, delete, JSON export, evidence |
+| **Rule library** | Allow/deny/trust/graduation in one place; search, inline edit, enable/disable, delete, JSON export, evidence |
 | **Rule health check** | Flags generic `contains`, blanket mode rules and huge trust roots, with narrowing suggestions |
 | **Reject escalation** | 3 consecutive / 20 total rejections → `escalate` event and a red "needs human" badge |
 | **Two-stage judging** | Fast `ALLOW/REVIEW` screen + deep re-check; off by default |
@@ -168,7 +168,7 @@ After a reload, the session permission dropdown shows **自动审批（Flash）*
    - **Keep recommended (conservative)**: session memory / promotion / graduation on, self-learning off;
    - **Enable self-learning (aggressive)**: learn directly from Flash `SAFE` verdicts.
 3. Work normally: safe operations run silently, uncertain ones prompt you, and approvals gradually become rules.
-4. For control: **Remember this operation** per row, manage everything in **⑦ Rule library**, tune thresholds in **⑥ Auto learning**.
+4. For control: **Remember this operation** per row, manage everything in **⑦ Rule library** (including inline editing), tune thresholds in **⑥ Auto learning**.
 
 ## UI
 
@@ -210,7 +210,7 @@ Eight configuration cards:
 | Shadow | Observation toggle; candidates are recorded, not auto-approved |
 | ⑤ Learning | Keys currently learning and their progress |
 | ⑥ Auto learning | Session memory, promotion, graduation, self-learning, two-stage |
-| ⑦ Rule library | Unified rule management + health check + export |
+| ⑦ Rule library | Unified rule management + inline editing + health check + export |
 
 > **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
 
@@ -308,7 +308,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 
 ## Roadmap
 
-- [ ] Inline rule editing (enable/disable/delete today);
+- [x] Inline rule editing (tool/mode/category/contains/description);
 - [ ] Semantic reuse (generalize from a single approval);
 - [x] Shadow mode: record "would auto-approve" candidates before enabling;
 - [ ] Per-project stats and trends;

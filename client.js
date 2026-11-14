@@ -1159,6 +1159,8 @@ window.__ModuleLoader__.load({
       const [timeoutMs, setTimeoutMs] = React.useState('20000')
       const [newTrustRoot, setNewTrustRoot] = React.useState('')
       const [newLibTrustRoot, setNewLibTrustRoot] = React.useState('')
+      const [editingRule, setEditingRule] = React.useState(null)
+      const [editError, setEditError] = React.useState('')
       const [stage1Provider, setStage1Provider] = React.useState('')
       const [stage1Model, setStage1Model] = React.useState('')
       const [selfLearnThreshold, setSelfLearnThreshold] = React.useState('5')
@@ -1283,6 +1285,65 @@ window.__ModuleLoader__.load({
           ),
           desc ? React.createElement('div', { className: 'ag-rule-desc' }, desc) : null,
           tags && tags.length ? React.createElement('div', { className: 'ag-rule-sub' }, tags) : null,
+        )
+      }
+
+      const beginEdit = function (kind, rule) {
+        setEditError('')
+        setEditingRule({
+          kind: kind, id: rule.id,
+          tool: rule.tool || '', mode: rule.mode || '', category: rule.category || '',
+          contains: rule.contains || '', description: rule.description || '',
+        })
+      }
+      const editField = function (field, width, placeholder) {
+        return React.createElement('input', {
+          className: 'ag-set-input', style: { width: width }, placeholder: placeholder,
+          value: editingRule && editingRule[field] !== undefined ? editingRule[field] : '',
+          onChange: function (e) {
+            const v = e.target.value
+            setEditingRule(function (prev) { return prev ? Object.assign({}, prev, { [field]: v }) : prev })
+          },
+        })
+      }
+      const ruleEditor = function (rule) {
+        return React.createElement('div', { className: 'ag-rule-item ag-rule-editor', key: 'edit-' + rule.id },
+          React.createElement('div', { className: 'ag-rule-main' },
+            React.createElement('span', { className: 'ag-rule-label' }, '行内编辑 · ' + (rule.id || '')),
+            React.createElement('div', { className: 'ag-rule-actions' },
+              React.createElement('button', {
+                type: 'button', className: 'ag-set-btn ag-set-btn-primary ag-btn-xs', disabled: busy,
+                onClick: function () {
+                  setEditError('')
+                  api({
+                    op: 'set', kind: editingRule.kind,
+                    value: {
+                      id: editingRule.id,
+                      rule: {
+                        tool: editingRule.tool, mode: editingRule.mode, category: editingRule.category,
+                        contains: editingRule.contains, description: editingRule.description,
+                      },
+                    },
+                  }).then(function (res) {
+                    if (res && res.ok) setEditingRule(null)
+                    else setEditError((res && res.error) || '保存失败')
+                  })
+                },
+              }, '保存'),
+              React.createElement('button', {
+                type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy,
+                onClick: function () { setEditingRule(null); setEditError('') },
+              }, '取消'),
+            ),
+          ),
+          React.createElement('div', { className: 'ag-set-row' },
+            editField('tool', 130, 'tool'),
+            editField('mode', 160, 'mode（可空）'),
+            editField('category', 130, 'category（可空）'),
+            editField('contains', 180, 'contains（可空）'),
+            editField('description', 220, '描述'),
+          ),
+          editError ? React.createElement('div', { className: 'ag-rule-sub', style: { color: 'var(--dsw-alias-state-danger-primary)' } }, editError) : null,
         )
       }
 
@@ -1653,11 +1714,13 @@ window.__ModuleLoader__.load({
                 if (rule.signature) parts.push('sig=' + String(rule.signature).split('|').slice(2).join('|'))
                 const actions = []
                 if (rule.evidenceEventId) actions.push(React.createElement('button', { key: 'e', type: 'button', className: 'ag-set-btn ag-btn-xs', title: '复制触发该规则的事件 ID', onClick: function () { copyText(rule.evidenceEventId) } }, '证据 #' + rule.evidenceEventId))
+                if (!rule.signature) actions.push(React.createElement('button', { key: 'm', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { beginEdit('allowRules', rule) } }, '编辑'))
                 actions.push(React.createElement('button', { key: 't', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'toggle', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) } }, rule.disabled ? '启用' : '停用'))
                 actions.push(React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则', onClick: function () { api({ op: 'remove', kind: 'allowRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains, signature: rule.signature } }) } }, '✕'))
                 const tags = [RULE_SOURCE_TAGS[ruleSource(rule)] || RULE_SOURCE_TAGS.default]
                 if (rule.disabled) tags.push(React.createElement('span', { key: 'x', className: 'ag-set-tag ag-set-tag-gray' }, '已停用'))
                 tags.push(React.createElement('span', { key: 'h', className: 'ag-set-item-meta' }, '命中 ' + (rule.hitCount || 0) + ' 次' + (rule.lastHit ? ' · 最近 ' + new Date(rule.lastHit).toLocaleString() : '')))
+                if (editingRule && editingRule.kind === 'allowRules' && editingRule.id === rule.id) return ruleEditor(rule)
                 return ruleItem('lib-a-' + idx, parts.join('  ') || '(任意)', rule.description || '', tags, actions)
               }))
             }
@@ -1671,10 +1734,12 @@ window.__ModuleLoader__.load({
                 if (rule.category) parts.push('category=' + rule.category)
                 if (rule.contains) parts.push('contains=' + rule.contains)
                 const actions = [
+                  React.createElement('button', { key: 'm', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { beginEdit('denyRules', rule) } }, '编辑'),
                   React.createElement('button', { key: 't', type: 'button', className: 'ag-set-btn ag-btn-xs', onClick: function () { api({ op: 'toggle', kind: 'denyRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains } }) } }, rule.disabled ? '启用' : '停用'),
                   React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '删除', 'aria-label': '删除规则', onClick: function () { api({ op: 'remove', kind: 'denyRules', value: { tool: rule.tool, mode: rule.mode, category: rule.category, contains: rule.contains } }) } }, '✕'),
                 ]
                 const tags = [rule.disabled ? React.createElement('span', { key: 'x', className: 'ag-set-tag ag-set-tag-gray' }, '已停用') : null].filter(Boolean)
+                if (editingRule && editingRule.kind === 'denyRules' && editingRule.id === rule.id) return ruleEditor(rule)
                 return ruleItem('lib-d-' + idx, parts.join('  ') || '(任意)', rule.description || '', tags, actions)
               }))
             }

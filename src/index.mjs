@@ -369,8 +369,8 @@ function getRulesSnapshot() {
     config: {
       version: config.version || 3,
       denyKeywords: config.denyKeywords || [],
-      allowRules: (config.allowRules || []).map(decorateRule),
-      denyRules: config.denyRules || [],
+      allowRules: (config.allowRules || []).map((r) => decorateRule(r, 'allowRules')),
+      denyRules: (config.denyRules || []).map((r) => decorateRule(r, 'denyRules')),
       hardCategories: config.hardCategories || [],
       riskyThreshold: config.riskyThreshold || 3,
       judgeTimeoutMs: config.judgeTimeoutMs || 20000,
@@ -543,6 +543,31 @@ function applyRuleOp(op, kind, value) {
       return { ok: false, error: '未找到该学习项' }
     }
     return { ok: false, error: `未知规则类型: ${kind}` }
+  }
+
+  if (op === 'set') {
+    const v = value || {}
+    const patch = v.rule && typeof v.rule === 'object' ? v.rule : v
+    const id = String(v.id || patch.id || '')
+    if (!id) return { ok: false, error: '缺少规则 id' }
+    const idx = list.findIndex((r) => r && typeof r === 'object' && ruleStableId(r, kind) === id)
+    if (idx < 0) return { ok: false, error: '未找到匹配的规则' }
+    const previous = list[idx]
+    const next = Object.assign({}, previous, patch)
+    delete next.id
+    for (const field of ['tool', 'mode', 'category', 'contains', 'description']) {
+      if (patch[field] !== undefined) next[field] = String(patch[field] || '').trim()
+    }
+    next.hitCount = previous.hitCount || 0
+    next.source = previous.source || next.source || 'user'
+    next.createdAt = previous.createdAt || Date.now()
+    next.updatedAt = Date.now()
+    const invalid = validateRuleEdit(next, kind, previous)
+    if (invalid) return { ok: false, error: invalid }
+    list[idx] = next
+    saveJson(ALLOWLIST_PATH, config)
+    audit(`CONFIG  ${kind} set ${id} → ${JSON.stringify(next)}`)
+    return { ok: true, updated: true, id: ruleStableId(next, kind) }
   }
 
   if (op === 'toggle') {
@@ -1105,12 +1130,34 @@ function ruleSourceOf(rule) {
   if (d === '用户自定义') return 'user'
   return 'default'
 }
-function decorateRule(rule) {
+function ruleStableId(rule, kind) {
+  const fields = [rule && rule.tool, rule && rule.mode, rule && rule.category, rule && rule.contains, rule && rule.signature]
+  return String(kind || 'allowRules') + ':' + fields.map((v) => encodeURIComponent(String(v || ''))).join('|')
+}
+function decorateRule(rule, kind) {
   if (!rule || typeof rule !== 'object') return rule
   if (!rule.source) rule.source = ruleSourceOf(rule)
   if (rule.hitCount === undefined) rule.hitCount = 0
   if (rule.disabled === undefined) rule.disabled = false
+  rule.id = ruleStableId(rule, kind)
   return rule
+}
+function validateRuleEdit(rule, kind, previous) {
+  if (!rule || typeof rule !== 'object') return '规则必须是对象'
+  for (const field of ['tool', 'mode', 'category', 'contains', 'description']) {
+    if (rule[field] !== undefined && typeof rule[field] !== 'string') return field + ' 必须是字符串'
+  }
+  const hasAny = rule.tool || rule.mode || rule.category || rule.contains || rule.signature
+  if (!hasAny) return '规则至少需要 tool/mode/category/contains 之一'
+  if (rule.tool && !/^[A-Za-z0-9_.-]{1,80}$/.test(rule.tool)) return 'tool 名称不合法'
+  if (rule.mode && rule.mode !== 'workspace-write' && rule.mode !== 'danger-full-access') return 'mode 只能是 workspace-write 或 danger-full-access'
+  if (rule.category && rule.category !== 'neutral' && !DEFAULT_HARD_CATEGORIES.includes(rule.category)) return 'category 不合法'
+  if (rule.contains && String(rule.contains).length > 200) return 'contains 太长（最多 200 字符）'
+  if (kind === 'allowRules' && rule.mode === 'danger-full-access' && !rule.tool && !rule.contains && !rule.signature) {
+    return 'danger-full-access 规则必须限定 tool/contains/signature，不能无条件放行'
+  }
+  if (previous && previous.signature && rule.signature !== previous.signature) return '签名规则不能在行内修改签名'
+  return null
 }
 function touchRuleHit(rule) {
   try {
