@@ -298,6 +298,16 @@ window.__ModuleLoader__.load({
 .ag-switch-pair{display:inline-flex;align-items:center;gap:8px}
 .ag-switch-state{min-width:30px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;white-space:nowrap}
 .ag-switch-on + .ag-switch-state{color:var(--dsw-alias-state-business-primary)}
+/* ---- remember action: high-contrast in both themes ---- */
+.ag-remember-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:26px;padding:0 10px;border:1px solid transparent;border-radius:7px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-foreground);font:inherit;font-size:11px;font-weight:500;line-height:16px;white-space:nowrap;cursor:pointer;box-shadow:0 1px 2px color-mix(in srgb,#000 14%,transparent);transition:background .14s ease,border-color .14s ease,transform .1s ease,opacity .14s ease}
+.ag-remember-btn:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 84%,#000)}
+.ag-remember-btn:active:not(:disabled){transform:translateY(1px)}
+.ag-remember-btn:focus-visible{outline:2px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,transparent);outline-offset:2px}
+.ag-remember-btn:disabled{opacity:.5;cursor:default}
+.ag-remember-btn-on{border-color:var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);box-shadow:none}
+.ag-remember-btn-on:hover:not(:disabled){border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.ag-remember-btn-error{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,var(--dsw-alias-border-l2));background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-state-error-primary);box-shadow:none}
+.ag-remember-btn-error:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 16%,var(--dsw-alias-bg-layer-1))}
 /* ---- settings typography: make card headings readable ---- */
 .ag-set-title{font-size:18px;font-weight:600;line-height:26px;letter-spacing:-.01em}
 .ag-set-intro{font-size:14px;line-height:21px}
@@ -1026,7 +1036,7 @@ window.__ModuleLoader__.load({
             React.createElement('div', { className: 'ag-row-actions' },
               kind !== 'manual-rejected' && kind !== 'escalate' && kind !== 'shadow-candidate' && ev.mode
                 ? React.createElement('button', {
-                    type: 'button', className: 'ag-set-btn ag-btn-xs',
+                    type: 'button', className: 'ag-remember-btn' + (isRemembered ? ' ag-remember-btn-on' : '') + (errored ? ' ag-remember-btn-error' : ''),
                     disabled: busy,
                     onClick: function () { if (isRemembered) doForget(ev); else doRemember(ev) },
                     title: errored ? ('记住失败：' + ov.slice(6)) : (isRemembered ? '取消记住：删除该操作的白名单规则' : '把这次操作沉淀为白名单规则'),
