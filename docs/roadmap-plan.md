@@ -107,3 +107,17 @@
 - 样本与本次请求的 prompt 均包含真实参数；`npm test` 的 SAME 路径仍只放行一次。
 - 不同 program 不会因理由相似被判 SAME；无样本/验证失败继续转人工。
 - `npm test` 覆盖真实参数写入与 prompt 内容。
+
+## 8. Shadow 候选分组与规则建议（P2）
+
+- 只读 `events.jsonl` 中的 `shadow-candidate`，按 `wouldPath|tool|mode|category|commandPattern|cwd` 分组。
+- 只对 `flash-safe` / `semantic`（以及带命令的 `trust`）生成保守建议；已有规则路径（`rule`/`learned`/`fpHit`/`flash-same`）不再建议。
+- 命令候选建议 `commandPattern + cwdPrefix`；非命令候选仅在能从理由提取路径指纹时建议 `contains`。
+- API：`GET /api/auto-approve/shadow-suggestions`，只读、不自动建规则；设置页 Shadow 卡片展示 ≥2 次的分组，点「创建规则」才写入。
+- 语音只作为未来的输入通道，不参与命令/语义匹配核心。
+
+**验收**
+
+- 同命令同目录的两次候选聚合为一组，建议规则带 `commandPattern` 与 `cwdPrefix`。
+- 只有点击按钮才调用规则 API；端点本身无副作用。
+- `npm test` 覆盖分组、计数和建议字段。

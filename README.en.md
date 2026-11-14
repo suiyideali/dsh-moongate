@@ -76,7 +76,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Rule health check** | Flags generic `contains`, blanket mode rules and huge trust roots, with narrowing suggestions |
 | **Reject escalation** | 3 consecutive / 20 total rejections → `escalate` event and a red "needs human" badge |
 | **Two-stage judging** | Fast `ALLOW/REVIEW` screen + deep re-check; off by default |
-| **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots |
+| **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots; repeated candidates are grouped by command/directory with one-click rule suggestions |
 | **Approval dashboard** | Stat cards, distribution bar, 7-day trend, top tools, per-project aggregation, filters/search, date-grouped timeline |
 | **UI language** | Follows the browser language and switches between Chinese and English (records, settings, notice strip and main errors) |
 
@@ -319,7 +319,8 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 - [x] Shadow mode: record "would auto-approve" candidates before enabling;
 - [x] Per-project stats (all sessions, unknown-directory fallback);
 - [x] i18n (follows the browser language; main UI in Chinese/English);
-- [x] Command-intent learning (safe bash commands + cwd get separate counters/rules; unrecognized commands are not learned).
+- [x] Command-intent learning (safe bash commands + cwd get separate counters/rules; unrecognized commands are not learned);
+- [x] Shadow candidate grouping and rule suggestions (same command/directory candidates aggregate; create a rule manually).
 
 ## FAQ
 
