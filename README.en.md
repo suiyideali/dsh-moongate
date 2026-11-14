@@ -83,13 +83,23 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 
 ### Option 1: install the fork (recommended)
 
-In the DSH plugin manager, install from GitHub:
+#### Install in the DSH app (Desktop)
 
-```text
-github:suiyideali/dsh-moongate
-```
+No CLI needed. In the DSH sidebar:
 
-For a CLI-managed profile:
+1. Open the **Plugins** page.
+2. Open the arrow next to **Add plugin** (**Choose how to add a plugin**) and choose **Install a third-party plugin**. Clicking **Add plugin** opens the same dialog.
+3. In the package field, enter:
+
+   ```text
+   github:suiyideali/dsh-moongate
+   ```
+
+4. Click **Install**, then **Enable now** when the install finishes, and reload/refresh when prompted.
+
+> The dialog also accepts an npm package name, a tarball, or an absolute local path. This example uses the Git address, so no npm release is required. The Desktop `desktop` profile is managed by the app, so the in-app plugin manager is the correct install path there.
+
+#### Install with the CLI (CLI-managed profiles only)
 
 ```sh
 dsh plugin --profile <profile> add github:suiyideali/dsh-moongate

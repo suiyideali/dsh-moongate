@@ -87,13 +87,23 @@ DeepSeek Harness 默认会在命令和文件修改前询问你。问题是：真
 
 ### 方式一：安装 fork 包（推荐）
 
-在 DSH 的插件管理界面从 GitHub 安装：
+#### 在 DSH 应用内安装（Desktop 用这个）
 
-```text
-github:suiyideali/dsh-moongate
-```
+不需要命令行，直接在 DSH 侧栏操作：
 
-如果你用 CLI 管理 profile：
+1. 打开侧栏的 **插件** 页面。
+2. 点 **添加插件** 旁的箭头 **选择添加插件方式**，选 **安装第三方插件**（直接点 **添加插件** 也会打开同一个对话框）。
+3. 在包名输入框填入：
+
+   ```text
+   github:suiyideali/dsh-moongate
+   ```
+
+4. 点 **安装**；看到安装结果后点 **立即启用**，再按提示重载/刷新。
+
+> 对话框也接受 npm 包名、压缩包和本地绝对路径；这里用 Git 地址，所以不需要先发布 npm。Desktop 的 `desktop` profile 由应用托管，插件管理界面就是 Desktop 的正确安装入口。
+
+#### 用 CLI 安装（仅 CLI 管理的 profile）
 
 ```sh
 dsh plugin --profile <profile> add github:suiyideali/dsh-moongate
