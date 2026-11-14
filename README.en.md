@@ -72,7 +72,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Session memory** | The same fingerprint approved once in a session repeats without prompting |
 | **Cross-session promotion** | Multi-session approvals become global rules (path fingerprint, intent signal, no deny history) |
 | **Signature graduation** | Similar operations graduate into rules after enough manual confirmations (multi-fingerprint, 2 sessions) |
-| **Self-learning (on by default)** | Graduates signatures from consecutive Flash `SAFE` verdicts without human confirmation; default 3 verdicts / 1 session, thresholds and cap configurable |
+| **Self-learning (on by default)** | Graduates signatures from cumulative Flash `SAFE` verdicts without human confirmation; default 3 verdicts / 1 session, thresholds and cap configurable |
 | **Negative feedback** | Rejecting or reverting removes the learned rule/memory and makes the pattern permanent manual |
 | **Rule library** | Allow/deny/trust/graduation in one place; search, inline edit, enable/disable, delete, JSON export, evidence |
 | **Rule health check** | Flags generic `contains`, blanket mode rules and huge trust roots, with narrowing suggestions |
@@ -172,7 +172,7 @@ After a reload, the session permission dropdown shows **自动审批（Flash）*
 
 1. Select **自动审批（Flash）** in the session permission dropdown — per session only.
 2. **No learning setup is required**: self-learning, session memory, and cross-session promotion are on by default. The first time you open Settings → Auto approval, a short note explains:
-   - **Default**: after 3 consecutive Flash `SAFE` verdicts (at least 1 session), a rule is learned; session memory / promotion / graduation are also on;
+   - **Default**: after 3 cumulative Flash `SAFE` verdicts (at least 1 session), a rule is learned; session memory / promotion / graduation are also on;
    - **More conservative**: turn self-learning off or raise the thresholds in ⑤;
    - **Faster**: lower the thresholds; click **Trust** on a project-stat row, or add trust roots / project trust in ⑥.
 3. Work normally: safe operations run silently, uncertain ones prompt you; approved repeats are reused in this session and promoted to global rules across sessions.
@@ -208,16 +208,16 @@ The approval view embeds the full Auto approval settings (the same configuration
 - click to scroll to the card; changes apply hot without leaving the view;
 - the Settings → Auto approval entry remains as a second entry point.
 
-Eight configuration cards:
+Seven configuration cards:
 
 | Card | Content |
 | --- | --- |
 | ① DENY | Irreversible danger keywords |
 | ② Allowlist | Auto-approve rules with source and hit count |
 | ③ denyRules | Permanently manual rules |
-| ④ Flash | `riskyThreshold`, `judgeTimeoutMs` |
+| ④ Flash | `judgeTimeoutMs` |
 | Shadow | Observation toggle; candidates are recorded, not auto-approved |
-| ⑤ Learning & sedimentation | Manual-confirmation keys/threshold + session memory, promotion, graduation, self-learning, two-stage, semantic reuse |
+| ⑤ Learning & sedimentation | `riskyThreshold`, manual-confirmation keys/threshold + session memory, promotion, graduation, self-learning, two-stage, semantic reuse |
 | ⑥ Rule library | Unified rule management + inline editing + health check + export |
 
 > **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
@@ -266,7 +266,7 @@ Self-learning is on by default so a new user can reduce repeat approvals without
 | Session memory | You approved the same operation in this session | Reused in this session (12h TTL) |
 | Cross-session promotion | Same operation approved in at least 2 sessions | Global allow rule |
 | Signature graduation | Same class approved 3 times across 2 sessions with no deny history | Global signature rule |
-| Self-learning | 3 consecutive Flash `SAFE` verdicts in at least 1 session | Global rule (no human label) |
+| Self-learning | 3 cumulative Flash `SAFE` verdicts in at least 1 session | Global rule (no human label) |
 
 These rules are **global**: a test command or project write learned in session A also applies in session B. Audit or delete them by source, hit count, and evidence in ⑥ Rules.
 

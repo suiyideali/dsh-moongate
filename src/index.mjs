@@ -1022,9 +1022,9 @@ function recordSelfObservation(sessionId, toolName, mode, justification, eventId
   prev.events = (prev.events || []).concat(eventId === undefined ? [] : [eventId]).slice(-10)
   memoryStore.selfLearn[sig] = prev
   saveJson(MEMORY_PATH, memoryStore)
-  const threshold = config.selfLearnThreshold || 5
+  const threshold = config.selfLearnThreshold || 3
   const sessions = Object.keys(prev.sessions).length
-  if (prev.count >= threshold && sessions >= (config.selfLearnSessions || 2)) {
+  if (prev.count >= threshold && sessions >= (config.selfLearnSessions || 1)) {
     const exists = (config.allowRules || []).some((r) => r && r.signature === sig && (r.graduation || r.source === 'self-learned'))
     if (!exists) {
       const selfCount = (config.allowRules || []).filter((r) => r && r.source === 'self-learned').length
@@ -1034,7 +1034,7 @@ function recordSelfObservation(sessionId, toolName, mode, justification, eventId
       }
       const rule = {
         tool: toolName, signature: sig, source: 'self-learned',
-        description: `自学习：Flash 连续 SAFE ${prev.count} 次（${sessions} 个会话）`,
+        description: `自学习：Flash 累计 SAFE ${prev.count} 次（${sessions} 个会话）`,
         createdAt: Date.now(), hitCount: 0, evidenceEventIds: (prev.events || []).slice(-5),
       }
       if (mode) rule.mode = mode
