@@ -1350,6 +1350,17 @@ function commandIntent(toolName, argsText, sessionCwd) {
     return { eligible: true, readOnly: true, pattern: `gh ${group} ${sub}`, cwd: cwdScope, program: 'gh' }
   }
 
+  if (program === 'go') {
+    const sub = String(rest[0] || '').toLowerCase()
+    if (!['test', 'build', 'vet'].includes(sub)) return null
+    if (hasFlag(/^(?:-o|--output|-exec|--exec|-toolexec|--toolexec|-C|--dir|--overlay)(?:=.*)?$/)) return null
+    for (const token of rest) {
+      if (token === '..' || token.startsWith('../')) return null
+      if (token.startsWith('/') && !isPathWithin(token, cwdScope)) return null
+    }
+    return { eligible: true, readOnly: false, pattern: `go ${sub}`, cwd: cwdScope, program: 'go' }
+  }
+
   if (['npm', 'pnpm', 'yarn', 'bun'].includes(program)) {
     const sub = String(rest[0] || '').toLowerCase()
     if (sub === 'test') return { eligible: true, readOnly: false, pattern: `${program} test`, cwd: cwdScope, program }

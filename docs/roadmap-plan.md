@@ -137,7 +137,7 @@
 
 **判定**（在只读快速路径之后、全局 `trustRoots` 之前）：
 - `edit`/`write`：从 tool arguments 的 `path`/`file_path`/`files` 提取路径；所有路径必须落在同一信任根目录下。
-- `bash`：必须有 `commandCtx`（`commandIntent` 已识别）且 `commandCtx.cwd` 在信任根目录内；因此 `npm test`、`npm run lint` 等可放行，`git push`、`curl`、`rm` 等没有 `commandCtx`，仍转人工。
+- `bash`：必须有 `commandCtx`（`commandIntent` 已识别）且 `commandCtx.cwd` 在信任根目录内；因此 `npm test`、`go test`、`npm run lint` 等可放行，`git push`、`curl`、`rm` 等没有 `commandCtx`，仍转人工。
 - 显式 `denyRules` 优先；Shadow 开启时只记录 `wouldPath:'project-trust'` 候选。
 - 自动放行事件 `path/verdict:'project-trust'`，带 `projectRoot`，不写规则/学习；edit/write 仍生成改动前快照。
 

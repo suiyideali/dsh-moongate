@@ -335,6 +335,12 @@ assert.equal(projectBashOut, 'allowed-once')
 assert.equal(nextCalls, 0, 'project trust auto-allows recognized test command inside root')
 
 nextCalls = 0
+feedToolCall('project-test', 'call-project-go', 'cd ' + projectRoot + ' && go test ./...')
+const projectGoOut = await approval(bashRequest('project-test', 'call-project-go', 'cd ' + projectRoot + ' && go test ./...'), nextAllowed)
+assert.equal(projectGoOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows go test inside root')
+
+nextCalls = 0
 feedToolCall('project-test', 'call-project-push', 'git push')
 const projectPushOut = await approval(bashRequest('project-test', 'call-project-push', 'git push'), nextAllowed)
 assert.equal(projectPushOut, 'allowed-once')
