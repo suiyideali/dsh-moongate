@@ -82,40 +82,55 @@ DeepSeek Harness 默认会在命令和文件修改前询问你。问题是：真
 ## 安装
 
 > 当前适配 **DeepSeek Harness 0.2.x**（实测 0.2.2-rc.1）。安装/更新 host 代码后重载插件（禁用/启用插件行或重启 App）；只改 client 时刷新页面即可。
+>
+> **Desktop 用户注意**：DSH Desktop 的 `desktop` profile 由应用托管，`dsh plugin --profile desktop ...` 会被拒绝（`profile "desktop" is managed exclusively by the Electron application`）。请在应用的插件管理界面安装/卸载。下面 CLI 示例中的 `<profile>` 指你自己用 CLI 管理的 profile（通常是 `web`），不要照抄成 `desktop`。
 
 ### 方式一：安装 fork 包（推荐）
 
-从 GitHub 安装：
+在 DSH 的插件管理界面从 GitHub 安装：
+
+```text
+github:suiyideali/dsh-moongate
+```
+
+如果你用 CLI 管理 profile：
 
 ```sh
-dsh plugin --profile desktop add github:suiyideali/dsh-moongate
+dsh plugin --profile <profile> add github:suiyideali/dsh-moongate
 ```
 
 发布到 npm 后也可以：
 
 ```sh
-dsh plugin --profile desktop add dsh-moongate
+dsh plugin --profile <profile> add dsh-moongate
 ```
 
-> 从上游迁移：先卸载/禁用 `dsh-approval-gate`，再安装 `dsh-moongate`，避免两个插件同时抢 `approval/request`。两者共用 `~/.dsh/auto-approve/` 数据目录，学习记录不会丢。
+从上游迁移（Desktop 版）：
+
+1. 备份 `~/.dsh/auto-approve/`、profile 的 `cordis.patch.yml` 和 `pnpm-workspace.yaml`。
+2. 在插件管理里禁用/移除 `dsh-approval-gate`；并从 `pnpm-workspace.yaml` 删除 `'dsh-approval-gate@0.5.0': ...` 这一行 `patchedDependencies`。
+3. 安装 `dsh-moongate`，重启/重载后确认 profile 里只有这一条审批插件。
+4. 数据目录仍为 `~/.dsh/auto-approve/`，已有规则/学习记录直接沿用；`auto-approve` 权限预设保留。
+
+> 不要同时启用 `dsh-approval-gate` 和 `dsh-moongate`，否则两个插件会同时抢 `approval/request`。
 
 ### 方式二：给上游包打补丁
 
-如果你已经在用上游 `dsh-approval-gate@0.5.0`，可以只应用完整 diff（`patches/`）：
+如果你在用 CLI 管理的 profile，并且已经安装了上游 `dsh-approval-gate@0.5.0`，可以只应用完整 diff（`patches/`）：
 
 ```sh
 # 1) 安装上游包（若尚未安装）
-dsh plugin --profile desktop add dsh-approval-gate@0.5.0
+dsh plugin --profile <profile> add dsh-approval-gate@0.5.0
 
 # 2) 复制补丁
-cp patches/dsh-approval-gate@0.5.0.patch ~/.dsh/profiles/desktop/patches/
+cp patches/dsh-approval-gate@0.5.0.patch ~/.dsh/profiles/<profile>/patches/
 
-# 3) 在 ~/.dsh/profiles/desktop/pnpm-workspace.yaml 增加
+# 3) 在 ~/.dsh/profiles/<profile>/pnpm-workspace.yaml 增加
 # patchedDependencies:
 #   'dsh-approval-gate@0.5.0': patches/dsh-approval-gate@0.5.0.patch
 
 # 4) 重装应用补丁（pnpm 版本需匹配 profile 的 store）
-cd ~/.dsh/profiles/desktop
+cd ~/.dsh/profiles/<profile>
 pnpm install
 ```
 

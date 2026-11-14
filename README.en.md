@@ -78,26 +78,45 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 ## Install
 
 > Targets **DeepSeek Harness 0.2.x** (verified on 0.2.2-rc.1). Reload the plugin after host changes (toggle the plugin row or restart the app); client-only changes need a page refresh.
+>
+> **Desktop note**: DSH Desktop manages the `desktop` profile itself; `dsh plugin --profile desktop ...` is rejected (`profile "desktop" is managed exclusively by the Electron application`). Use the app's plugin manager instead. The CLI examples below use `<profile>` for a CLI-managed profile such as `web`; do not substitute `desktop`.
 
 ### Option 1: install the fork (recommended)
 
-```sh
-dsh plugin --profile desktop add github:suiyideali/dsh-moongate
-# after publishing to npm:
-# dsh plugin --profile desktop add dsh-moongate
+In the DSH plugin manager, install from GitHub:
+
+```text
+github:suiyideali/dsh-moongate
 ```
 
-> Migrating from upstream: uninstall/disable `dsh-approval-gate` first, then install `dsh-moongate`, so the two do not compete for `approval/request`. Both share `~/.dsh/auto-approve/`, so learning data is preserved.
+For a CLI-managed profile:
+
+```sh
+dsh plugin --profile <profile> add github:suiyideali/dsh-moongate
+# after publishing to npm:
+# dsh plugin --profile <profile> add dsh-moongate
+```
+
+Migrating from upstream on Desktop:
+
+1. Back up `~/.dsh/auto-approve/`, the profile's `cordis.patch.yml`, and `pnpm-workspace.yaml`.
+2. Disable/remove `dsh-approval-gate` in the plugin manager, then delete the `'dsh-approval-gate@0.5.0': ...` line from `patchedDependencies`.
+3. Install `dsh-moongate`; after a reload, confirm it is the only approval plugin in the profile.
+4. The data directory stays `~/.dsh/auto-approve/`, so existing rules and learning history carry over; the `auto-approve` permission preset stays in place.
+
+> Do not enable `dsh-approval-gate` and `dsh-moongate` together; both would compete for `approval/request`.
 
 ### Option 2: patch the upstream package
 
+For a CLI-managed profile that already has upstream `dsh-approval-gate@0.5.0`:
+
 ```sh
-dsh plugin --profile desktop add dsh-approval-gate@0.5.0
-cp patches/dsh-approval-gate@0.5.0.patch ~/.dsh/profiles/desktop/patches/
-# add to ~/.dsh/profiles/desktop/pnpm-workspace.yaml:
+dsh plugin --profile <profile> add dsh-approval-gate@0.5.0
+cp patches/dsh-approval-gate@0.5.0.patch ~/.dsh/profiles/<profile>/patches/
+# add to ~/.dsh/profiles/<profile>/pnpm-workspace.yaml:
 # patchedDependencies:
 #   'dsh-approval-gate@0.5.0': patches/dsh-approval-gate@0.5.0.patch
-cd ~/.dsh/profiles/desktop
+cd ~/.dsh/profiles/<profile>
 pnpm install
 ```
 
