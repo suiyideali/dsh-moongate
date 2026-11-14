@@ -22,9 +22,28 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
 assert.ok(client.includes('function T(zh, en)'), 'client has i18n helper')
-for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit']) {
+for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '导出本会话 JSON', '复制会话 ID', 'session-trace@1']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
+
+// 会话导出：只保留已落地审批事件，按 id 升序；不导出 manual-pending 和 UI 派生字段。
+const traceStart = client.indexOf('const SESSION_TRACE_SCHEMA')
+const traceEnd = client.indexOf('function downloadJson', traceStart)
+assert.ok(traceStart >= 0 && traceEnd > traceStart, 'session trace builder is present')
+const buildSessionTrace = new Function(client.slice(traceStart, traceEnd) + '\nreturn buildSessionTrace')()
+const trace = buildSessionTrace('session-1', [
+  { id: 2, kind: 'manual-pending', ts: '2026-11-15T00:00:02Z', tool: 'bash', cwd: '/a', path: 'pending' },
+  { id: 1, kind: 'auto', ts: '2026-11-15T00:00:01Z', tool: 'bash', cwd: '/a', path: 'rule', remembered: true },
+  { id: 3, kind: 'manual-approved', ts: '2026-11-15T00:00:03Z', tool: 'bash', cwd: '/a', path: 'neutral-confirm' },
+])
+assert.equal(trace.schema, 'dsh-moongate/session-trace@1')
+assert.equal(trace.sessionId, 'session-1')
+assert.deepEqual(trace.events.map(function (ev) { return ev.id }), [1, 3])
+assert.equal(trace.summary.eventCount, 2)
+assert.deepEqual(trace.summary.byKind, { auto: 1, 'manual-approved': 1 })
+assert.deepEqual(trace.summary.byTool, { bash: 2 })
+assert.deepEqual(trace.summary.cwds, ['/a'])
+assert.equal(trace.events[0].remembered, undefined)
 
 // Shadow 模式行为：开启时只记录候选并转人工，不写规则命中；关闭时恢复正常自动放行。
 const dataDir = join(process.env.DSH_HOME, 'auto-approve')

@@ -241,6 +241,11 @@ window.__ModuleLoader__.load({
 .ag-view-badges{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;padding-top:4px}
 .ag-view-pill{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 82%,transparent);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:20px;white-space:nowrap}
 .ag-view-pill-dot{width:5px;height:5px;border-radius:999px;background:var(--dsw-alias-state-success-primary)}
+.ag-view-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 0 12px}
+.ag-view-sid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);padding-right:2px}
+.ag-export-btn{background:var(--dsw-alias-button-primary-fill);border-color:transparent;color:var(--dsw-alias-label-primary-foreground)}
+.ag-export-btn:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover);border-color:transparent}
+.ag-export-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}
 .ag-tabbar{padding:12px 18px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);background:transparent;gap:6px}
 .ag-tab{height:30px;padding:0 12px;border-radius:999px;font-weight:500;border:1px solid transparent}
 .ag-tab-active{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);box-shadow:0 1px 3px color-mix(in srgb,#000 7%,transparent)}
@@ -391,6 +396,59 @@ window.__ModuleLoader__.load({
       }).then(function (data) {
         return (data && Array.isArray(data.events)) ? data.events : []
       })
+    }
+
+    // 会话审批轨迹：只导出已落地的审批事件（不含 manual-pending），按 id 升序还原调用线路。
+    const SESSION_TRACE_SCHEMA = 'dsh-moongate/session-trace@1'
+    function buildSessionTrace(sessionId, events) {
+      const list = (Array.isArray(events) ? events : [])
+        .filter(function (ev) { return (ev.kind || 'auto') !== 'manual-pending' })
+        .slice()
+        .sort(function (a, b) { return (Number(a.id) || 0) - (Number(b.id) || 0) })
+      const byKind = {}
+      const byTool = {}
+      const byPath = {}
+      const cwds = []
+      list.forEach(function (ev) {
+        const kind = String(ev.kind || 'auto')
+        byKind[kind] = (byKind[kind] || 0) + 1
+        const tool = String(ev.tool || 'unknown')
+        byTool[tool] = (byTool[tool] || 0) + 1
+        const path = String(ev.path || 'unknown')
+        byPath[path] = (byPath[path] || 0) + 1
+        if (ev.cwd && cwds.indexOf(ev.cwd) < 0) cwds.push(ev.cwd)
+      })
+      return {
+        schema: SESSION_TRACE_SCHEMA,
+        exportedAt: new Date().toISOString(),
+        sessionId: String(sessionId || ''),
+        summary: {
+          eventCount: list.length,
+          firstTs: list.length ? list[0].ts : null,
+          lastTs: list.length ? list[list.length - 1].ts : null,
+          byKind: byKind,
+          byTool: byTool,
+          byPath: byPath,
+          cwds: cwds,
+        },
+        events: list.map(function (ev) {
+          const copy = Object.assign({}, ev)
+          delete copy.remembered
+          return copy
+        }),
+      }
+    }
+
+    function downloadJson(filename, data) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
     }
 
     // ================= ✅ 自动放行提示条（conversation.input.dock，order=30） =================
@@ -678,6 +736,8 @@ window.__ModuleLoader__.load({
       const allowedFilters = ['all', 'auto', 'approved', 'rejected', 'escalate', 'attention']
       const [events, setEvents] = React.useState(null)
       const [error, setError] = React.useState(null)
+      const [exportMsg, setExportMsg] = React.useState('')
+      const [exportBusy, setExportBusy] = React.useState(false)
       const [snapStats, setSnapStats] = React.useState(null) // {count, bytes} | null（当前会话）
       const [globalSnapStats, setGlobalSnapStats] = React.useState(null) // {count, bytes} | null（全部会话）
       const [projectStats, setProjectStats] = React.useState(null) // {projects,total,projectCount} | null
@@ -836,6 +896,39 @@ window.__ModuleLoader__.load({
           if (res && res.ok) setOverride(ev.id, 'forgotten')
           else setOverride(ev.id, 'error:' + ((res && res.error) || T('未知错误','Unknown error')))
         }).catch(function (e) { setOverride(ev.id, 'error:' + String((e && e.message) || e)) })
+      }
+
+      const flashExportMsg = function (msg) {
+        setExportMsg(msg)
+        setTimeout(function () { setExportMsg(function (cur) { return cur === msg ? '' : cur }) }, 4000)
+      }
+      const copySessionId = function () {
+        if (!sessionId) return
+        try {
+          const copied = navigator.clipboard.writeText(String(sessionId))
+          if (copied && typeof copied.then === 'function') {
+            copied.then(function () { flashExportMsg(T('已复制会话 ID','Session ID copied')) })
+              .catch(function (e) { flashExportMsg(T('复制失败：','Copy failed: ') + String((e && e.message) || e)) })
+          } else {
+            flashExportMsg(T('已复制会话 ID','Session ID copied'))
+          }
+        } catch (e) {
+          flashExportMsg(T('复制失败：','Copy failed: ') + String((e && e.message) || e))
+        }
+      }
+      const exportSessionJson = function () {
+        if (!sessionId || exportBusy) return
+        setExportBusy(true)
+        flashExportMsg(T('正在生成会话轨迹…','Preparing session trace…'))
+        fetchEvents(sessionId, 0).then(function (evs) {
+          const trace = buildSessionTrace(sessionId, evs)
+          const safeId = String(sessionId).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80)
+          const date = new Date().toISOString().slice(0, 10)
+          downloadJson('dsh-approval-session-' + safeId + '-' + date + '.json', trace)
+          flashExportMsg(T('已导出 ','Exported ') + trace.summary.eventCount + T(' 条审批记录',' approval events'))
+        }).catch(function (e) {
+          flashExportMsg(T('导出失败：','Export failed: ') + String((e && e.message) || e))
+        }).finally(function () { setExportBusy(false) })
       }
 
       React.useEffect(function () {
@@ -1090,6 +1183,25 @@ window.__ModuleLoader__.load({
               ),
               React.createElement('span', { className: 'ag-view-pill' }, T('可追溯','Auditable')),
             ),
+          ),
+          React.createElement('div', { className: 'ag-view-tools' },
+            React.createElement('span', { className: 'ag-view-sid', title: sessionId || '' },
+              sessionId ? (T('会话 ','Session ') + String(sessionId).slice(0, 8) + '…') : T('无会话','No session')),
+            React.createElement('button', {
+              type: 'button', className: 'ag-set-btn ag-btn-xs',
+              disabled: !sessionId,
+              onClick: copySessionId,
+              title: sessionId ? T('复制完整会话 ID','Copy full session ID') : '',
+            }, T('复制会话 ID','Copy session ID')),
+            React.createElement('button', {
+              type: 'button', className: 'ag-set-btn ag-btn-xs ag-export-btn',
+              disabled: !sessionId || exportBusy,
+              onClick: exportSessionJson,
+              title: T('导出本会话全部审批事件（JSON）','Export all approval events for this session (JSON)'),
+            }, exportBusy ? T('生成中…','Preparing…') : T('导出本会话 JSON','Export session JSON')),
+            exportMsg
+              ? React.createElement('span', { className: 'ag-export-note', role: 'status' }, exportMsg)
+              : null,
           ),
         ),
         React.createElement('div', { className: 'ag-tabbar', role: 'tablist', 'aria-label': T('审批视图','Approval audit') },
