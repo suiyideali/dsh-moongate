@@ -239,6 +239,14 @@ const feedToolCallTool = (sid, callId, name, args) => sessionEvent(
   { type: 'tool/call', data: { callId, name, arguments: JSON.stringify(args) } }
 )
 
+// 只读符号链接：软链指向 cwd 外时必须转人工。
+const readonlyOutside = join(process.env.DSH_HOME, 'readonly-outside.txt')
+writeFileSync(readonlyOutside, 'secret\n', 'utf8')
+const readonlyLinkFile = join(cwd, 'link-read.txt')
+if (!existsSync(readonlyLinkFile)) symlinkSync(readonlyOutside, readonlyLinkFile)
+const readonlyLinkDir = join(cwd, 'link-dir')
+if (!existsSync(readonlyLinkDir)) symlinkSync(process.env.DSH_HOME, readonlyLinkDir)
+
 // 只读快速路径：git status 这类严格只读命令首次安装即可自动放行；sed -i / 越界路径仍转人工。
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,
@@ -311,6 +319,15 @@ await expectManualBash('readonly-test', 'call-readonly-cfg', 'git config -e', 'g
 await expectManualBash('readonly-test', 'call-readonly-remote', 'git remote set-branches origin main', 'git remote set-branches must ask human')
 await expectManualBash('readonly-test', 'call-readonly-upstream', 'git branch --set-upstream-to=origin/main', 'git branch set-upstream must ask human')
 await expectManualBash('readonly-test', 'call-readonly-cd', 'cd /etc && cat passwd', 'cd outside session cwd must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitO', "git grep -O'touch /tmp/x' needle", 'git grep attached -O must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitnO', "git grep -nO'touch /tmp/x' needle", 'git grep combined -O must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedf', 'sed -n -f x.pat note.txt', 'sed -f script file must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedfile', 'sed -n --file=x.pat note.txt', 'sed --file script must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sorto', 'sort -ro out.txt f', 'sort attached -o must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sortT', 'sort -T/tmp f', 'sort attached -T must ask human')
+await expectManualBash('readonly-test', 'call-readonly-grepp', 'grep -f/etc/passwd pattern', 'grep attached -f must ask human')
+await expectManualBash('readonly-test', 'call-readonly-link', 'cat link-read.txt', 'read-only symlink escape must ask human')
+await expectManualBash('readonly-test', 'call-readonly-linkdir', 'cd link-dir && cat readonly-outside.txt', 'cd symlink outside must ask human')
 
 // 项目信任：只放行项目内的 edit/write 和已识别 test/build；push 仍转人工。
 const projectRoot = join(process.env.DSH_HOME, 'trusted-project')
@@ -372,10 +389,18 @@ const projectGoOut = await approval(bashRequest('project-test', 'call-project-go
 assert.equal(projectGoOut, 'allowed-once')
 assert.equal(nextCalls, 0, 'project trust auto-allows go test inside root')
 
+nextCalls = 0
+feedToolCall('project-test', 'call-project-build', 'cd ' + projectRoot + ' && npm run build')
+const projectBuildOut = await approval(bashRequest('project-test', 'call-project-build', 'cd ' + projectRoot + ' && npm run build'), nextAllowed)
+assert.equal(projectBuildOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows npm run build inside root')
+
 // 项目信任不能被 --prefix / 环境变量 / -vettool / symlink / 缺失参数绕过。
 await expectManualBash('project-test', 'call-project-prefix', 'cd ' + projectRoot + ' && npm test --prefix /tmp', 'project trust must reject npm --prefix')
 await expectManualBash('project-test', 'call-project-env', 'cd ' + projectRoot + ' && GOFLAGS=-toolexec=/tmp/evil go test ./...', 'project trust must reject leading env')
 await expectManualBash('project-test', 'call-project-vettool', 'cd ' + projectRoot + ' && go vet -vettool=/tmp/evil ./...', 'project trust must reject go -vettool')
+await expectManualBash('project-test', 'call-project-vettool2', 'cd ' + projectRoot + ' && go vet --vettool=/tmp/evil ./...', 'project trust must reject go --vettool')
+await expectManualBash('project-test', 'call-project-overlay', 'cd ' + projectRoot + ' && go build -overlay=/tmp/evil.json ./...', 'project trust must reject go -overlay')
 await expectManualBash('project-test', 'call-project-cd-out', 'cd /tmp && npm test', 'project trust must reject cwd outside root')
 
 nextCalls = 0

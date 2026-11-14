@@ -1226,7 +1226,7 @@ const SAFE_GH_GROUPS = new Map([
   ['repo', new Set(['view'])],
   ['run', new Set(['view', 'list'])],
 ])
-const SAFE_PM_SCRIPTS = new Set(['test', 'lint', 'typecheck', 'check', 'format:check', 'test:unit', 'test:integration'])
+const SAFE_PM_SCRIPTS = new Set(['test', 'build', 'lint', 'typecheck', 'check', 'format:check', 'test:unit', 'test:integration'])
 // 只读命令白名单：仅用于“零点击快速路径”，不做学习沉淀。
 // 这些命令要么只读文件，要么只查询系统状态；路径必须落在本次命令的 cwd 内。
 const READ_ONLY_PROGRAMS = new Set([
@@ -1282,6 +1282,7 @@ function isPathWithin(cwd, prefix) {
 // 只读命令的路径必须全部落在命令 cwd 内；`~`、绝对路径和 `../` 越界一律不放行。
 // 注意：这里只做保守检查，命中不确定的参数就返回 false（宁可多问一次）。
 function localReadOnlyArgsWithin(rest, cwdScope) {
+  const realCwd = realPathForCheck(cwdScope)
   for (let token of rest) {
     if (!token) continue
     if (token.startsWith('-')) {
@@ -1292,9 +1293,9 @@ function localReadOnlyArgsWithin(rest, cwdScope) {
     }
     // `..` / `../x` 即使没有绝对路径也越界
     if (token === '..' || token.startsWith('../')) return false
-    if (!/[\/~]/.test(token)) continue
+    // 所有位置参数都按路径做真实路径检查（宁可多问，也不让软链读出 cwd 外内容）
     const abs = resolveAbsPath(token, cwdScope)
-    if (!isPathWithin(abs, cwdScope)) return false
+    if (!isPathWithin(realPathForCheck(abs), realCwd)) return false
   }
   return true
 }
@@ -1332,9 +1333,11 @@ function commandIntent(toolName, argsText, sessionCwd) {
   const rest = tokens.slice(1)
   const flags = rest.filter((t) => t.startsWith('-'))
   const hasFlag = (re) => flags.some((f) => re.test(f))
+  const shortHas = (letters) => flags.some((f) => /^-[^-]/.test(f) && f.slice(1).split('').some((ch) => letters.includes(ch)))
   // 任何可能把输出写到文件 / 执行外部程序的旗标都不学习
   if (hasFlag(/^(?:-o|--output(?:=.*)?|--ext-diff|--textconv|--write|--pre(?:=.*)?)$/)) return null
   const cwdScope = cwd.replace(/\/+$/, '') || '/'
+  const readOnlyCwdSafe = isPathWithin(realPathForCheck(cwdScope), realPathForCheck(String(sessionCwd || '').trim()))
 
   if (program === 'git') {
     const sub = String(rest[0] || '').toLowerCase()
@@ -1348,10 +1351,11 @@ function commandIntent(toolName, argsText, sessionCwd) {
       const remoteSub = String(rest[1] || '').toLowerCase()
       if (remoteSub && remoteSub !== '-v' && !['show', 'get-url'].includes(remoteSub)) return null
     }
-    if (sub === 'grep' && hasFlag(/^(?:-O|--open-files-in-pager)(?:=.*)?$/)) return null
+    if (sub === 'grep' && (hasFlag(/^(?:-O|--open-files-in-pager)(?:=.*)?$/) || shortHas('O') || flags.some((f) => f.startsWith('--open-files-in-pager')))) return null
     if (sub === 'stash' && !['list', 'show'].includes(String(rest[1] || '').toLowerCase())) return null
     if (sub === 'worktree' && String(rest[1] || '').toLowerCase() !== 'list') return null
     if (sub === 'tag' && rest.length > 1 && !hasFlag(/^(?:-l|--list)$/)) return null
+    if (!readOnlyCwdSafe) return null
     return { eligible: true, readOnly: true, pattern: `git ${sub}`, cwd: cwdScope, program: 'git' }
   }
 
@@ -1361,13 +1365,15 @@ function commandIntent(toolName, argsText, sessionCwd) {
     const allowed = SAFE_GH_GROUPS.get(group)
     if (!allowed || !allowed.has(sub)) return null
     if (group === 'pr' && sub === 'status') return null // 旧版 gh，避免不确定行为
+    if (!readOnlyCwdSafe) return null
     return { eligible: true, readOnly: true, pattern: `gh ${group} ${sub}`, cwd: cwdScope, program: 'gh' }
   }
 
   if (program === 'go') {
     const sub = String(rest[0] || '').toLowerCase()
     if (!['test', 'build', 'vet'].includes(sub)) return null
-    if (hasFlag(/^(?:-o|--output|-exec|--exec|-toolexec|--toolexec|-C|--dir|--overlay|-vettool)(?:=.*)?$/)) return null
+    if (hasFlag(/^(?:-o|--output|-exec|--exec|-toolexec|--toolexec|-C|--dir|--overlay|-vettool)(?:=.*)?$/) ||
+        flags.some((f) => /^(?:--?vettool|--?overlay)(?:=.*)?$/.test(f))) return null
     for (const token of rest) {
       if (token === '..' || token.startsWith('../')) return null
       if (token.startsWith('/') && !isPathWithin(token, cwdScope)) return null
@@ -1398,6 +1404,7 @@ function commandIntent(toolName, argsText, sessionCwd) {
     if (program === 'sed') {
       if (!hasFlag(/^-(?:n|quiet|silent)/)) return null
       if (hasFlag(/^--in-place(?:=.*)?$/)) return null
+      if (shortHas('f') || flags.some((f) => f === '--file' || f.startsWith('--file='))) return null
       // 组合短旗标：-ni / -ni.bak / -i 都含 i，拒绝原地写。
       if (flags.some((f) => /^-[^-]/.test(f) && f.slice(1).includes('i'))) return null
       for (const t of rest) {
@@ -1409,7 +1416,9 @@ function commandIntent(toolName, argsText, sessionCwd) {
       const script = rest.find((t) => !t.startsWith('-'))
       if (script && /[we]/.test(script)) return null
     }
-    if (program === 'sort' && hasFlag(/^(?:-o|--output|--compress-program|--temporary-directory|-T)(?:=.*)?$/)) return null
+    if (program === 'sort' && (shortHas('o') || shortHas('T') || flags.some((f) => /^(?:--output|--temporary-directory|--compress-program)(?:=.*)?$/.test(f)))) return null
+    if (['grep', 'rg'].includes(program) && (shortHas('f') || flags.some((f) => f === '--file' || f.startsWith('--file=')))) return null
+    if (!readOnlyCwdSafe) return null
     if (!localReadOnlyArgsWithin(rest, cwdScope)) return null
     return { eligible: true, readOnly: true, pattern: `${program} read`, cwd: cwdScope, program }
   }
@@ -2465,7 +2474,7 @@ export default {
         }
 
         // 显式“永久人工”规则优先于只读快速路径（Deny 永远不能被便捷路径绕过）。
-        // 这里先用无 category 的匹配覆盖通用/命令 deny 规则；带 category 的规则仍在 4d 复核。
+        // 这里忽略 category 做一次前置匹配，确保带 category 的显式 deny 规则也能拦截便捷路径。
         if (matchRule(config.denyRules, toolName, mode, null, justification, commandCtx, { ignoreCategory: true })) {
           audit(`DENYRULE ${toolName} mode=${mode || 'none'} → 人工`)
           return forwardToHuman(sessionId, toolName, mode, reason, justification, '', 'deny-rule')
