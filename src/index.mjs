@@ -1268,8 +1268,21 @@ function parseToolArgs(text) {
 
 function realPathForCheck(p) {
   const abs = String(p || '')
-  try { return realpathSync(abs) } catch {}
-  try { return join(realpathSync(dirname(abs)), basename(abs)) } catch { return abs }
+  if (!abs) return abs
+  // 解析最长的“已存在祖先”，再把不存在的剩余路径段拼回去。
+  // 这样 /var → /private/var 这类软链 cwd 下的不存在参数不会被词法路径误判。
+  let cur = abs
+  const tail = []
+  while (true) {
+    try {
+      const real = realpathSync(cur)
+      return tail.length ? join(real, ...tail) : real
+    } catch {}
+    const parent = dirname(cur)
+    if (parent === cur) return abs
+    tail.unshift(basename(cur))
+    cur = parent
+  }
 }
 
 function isPathWithin(cwd, prefix) {
@@ -1334,6 +1347,10 @@ function commandIntent(toolName, argsText, sessionCwd) {
   const flags = rest.filter((t) => t.startsWith('-'))
   const hasFlag = (re) => flags.some((f) => re.test(f))
   const shortHas = (letters) => flags.some((f) => /^-[^-]/.test(f) && f.slice(1).split('').some((ch) => letters.includes(ch)))
+  const longPrefix = (names) => flags.some((f) => {
+    const name = String(f).split('=')[0]
+    return name.length > 2 && name.startsWith('--') && names.some((n) => n.startsWith(name))
+  })
   // 任何可能把输出写到文件 / 执行外部程序的旗标都不学习
   if (hasFlag(/^(?:-o|--output(?:=.*)?|--ext-diff|--textconv|--write|--pre(?:=.*)?)$/)) return null
   const cwdScope = cwd.replace(/\/+$/, '') || '/'
@@ -1344,15 +1361,15 @@ function commandIntent(toolName, argsText, sessionCwd) {
     if (!SAFE_GIT_SUBS.has(sub)) return null
     // -C / --git-dir / --work-tree 会把操作指向 cwd 之外；--no-index 可读任意文件。
     if (hasFlag(/^(?:-C|--git-dir|--work-tree|--no-index)(?:=.*)?$/)) return null
-    if (['branch', 'tag'].includes(sub) && (hasFlag(/^(?:-[dDmMf]|--delete|--move|--force|--edit|-u)$/) ||
-        flags.some((f) => f.startsWith('--set-upstream') || f.startsWith('--unset-upstream') || f.startsWith('--edit-description')))) return null
+    if (['branch', 'tag'].includes(sub) && (hasFlag(/^(?:-[dDmMf]|-u)$/) ||
+        longPrefix(['--delete', '--move', '--force', '--edit', '--set-upstream-to', '--unset-upstream', '--edit-description']))) return null
     // `git branch <name>` 会创建分支；只允许纯列表/查询参数（不接收任何位置参数）
     if (sub === 'branch' && rest.length > 1 && rest.slice(1).some((t) => !t.startsWith('-'))) return null
     if (sub === 'remote') {
       const remoteSub = String(rest[1] || '').toLowerCase()
       if (remoteSub && remoteSub !== '-v' && !['show', 'get-url'].includes(remoteSub)) return null
     }
-    if (sub === 'grep' && (shortHas('O') || flags.some((f) => f.startsWith('--open')))) return null
+    if (sub === 'grep' && (shortHas('O') || longPrefix(['--open-files-in-pager']))) return null
     if (sub === 'stash' && !['list', 'show'].includes(String(rest[1] || '').toLowerCase())) return null
     if (sub === 'worktree' && String(rest[1] || '').toLowerCase() !== 'list') return null
     if (sub === 'tag' && rest.length > 1 && !hasFlag(/^(?:-l|--list)$/)) return null
@@ -1404,7 +1421,7 @@ function commandIntent(toolName, argsText, sessionCwd) {
   if (READ_ONLY_PROGRAMS.has(program)) {
     if (program === 'sed') {
       if (!hasFlag(/^-(?:n|quiet|silent)/)) return null
-      if (flags.some((f) => f.startsWith('--in') || f.startsWith('--exp') || f.startsWith('--file'))) return null
+      if (longPrefix(['--in-place', '--expression', '--file'])) return null
       if (shortHas('f')) return null
       // 组合短旗标：-ni / -ni.bak / -i 都含 i，拒绝原地写。
       if (flags.some((f) => /^-[^-]/.test(f) && f.slice(1).includes('i'))) return null
@@ -1417,8 +1434,8 @@ function commandIntent(toolName, argsText, sessionCwd) {
       const script = rest.find((t) => !t.startsWith('-'))
       if (script && /[we]/.test(script)) return null
     }
-    if (program === 'sort' && (shortHas('o') || shortHas('T') || flags.some((f) => f.startsWith('--out') || f.startsWith('--comp') || f.startsWith('--temp')))) return null
-    if (['grep', 'rg'].includes(program) && (shortHas('f') || flags.some((f) => f.startsWith('--file')))) return null
+    if (program === 'sort' && (shortHas('o') || shortHas('T') || longPrefix(['--output', '--compress-program', '--temporary-directory']))) return null
+    if (['grep', 'rg'].includes(program) && (shortHas('f') || longPrefix(['--file']))) return null
     if (!readOnlyCwdSafe) return null
     if (!localReadOnlyArgsWithin(rest, cwdScope)) return null
     return { eligible: true, readOnly: true, pattern: `${program} read`, cwd: cwdScope, program }
