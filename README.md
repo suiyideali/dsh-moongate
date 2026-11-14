@@ -84,10 +84,10 @@ DeepSeek Harness 默认会在命令和文件修改前询问你。问题是：真
 > 当前适配 **DeepSeek Harness 0.2.x**（实测 0.2.2-rc.1）。安装/更新 host 代码后重载插件（禁用/启用插件行或重启 App）；只改 client 时刷新页面即可。
 >
 > **Desktop 用户注意**：DSH Desktop 的 `desktop` profile 由应用托管，`dsh plugin --profile desktop ...` 会被拒绝（`profile "desktop" is managed exclusively by the Electron application`）。请在应用的插件管理界面安装/卸载。下面 CLI 示例中的 `<profile>` 指你自己用 CLI 管理的 profile（通常是 `web`），不要照抄成 `desktop`。
+>
+> **首选安装方式：在 DSH 应用内安装。** 不需要命令行；Desktop 用户直接从方式一开始。
 
-### 方式一：安装 fork 包（推荐）
-
-#### 在 DSH 应用内安装（Desktop 用这个）
+### 方式一：在 DSH 应用内安装（推荐，Desktop 用这个）
 
 不需要命令行，直接在 DSH 侧栏操作：
 
@@ -103,7 +103,7 @@ DeepSeek Harness 默认会在命令和文件修改前询问你。问题是：真
 
 > 对话框也接受 npm 包名、压缩包和本地绝对路径；这里用 Git 地址，所以不需要先发布 npm。Desktop 的 `desktop` profile 由应用托管，插件管理界面就是 Desktop 的正确安装入口。
 
-#### 用 CLI 安装（仅 CLI 管理的 profile）
+### 方式二：用 CLI 安装（仅 CLI 管理的 profile）
 
 ```sh
 dsh plugin --profile <profile> add github:suiyideali/dsh-moongate
@@ -115,7 +115,7 @@ dsh plugin --profile <profile> add github:suiyideali/dsh-moongate
 dsh plugin --profile <profile> add dsh-moongate
 ```
 
-从上游迁移（Desktop 版）：
+### 从上游迁移（Desktop 版）
 
 1. 备份 `~/.dsh/auto-approve/`、profile 的 `cordis.patch.yml` 和 `pnpm-workspace.yaml`。
 2. 在插件管理里禁用/移除 `dsh-approval-gate`；并从 `pnpm-workspace.yaml` 删除 `'dsh-approval-gate@0.5.0': ...` 这一行 `patchedDependencies`。
@@ -124,7 +124,7 @@ dsh plugin --profile <profile> add dsh-moongate
 
 > 不要同时启用 `dsh-approval-gate` 和 `dsh-moongate`，否则两个插件会同时抢 `approval/request`。
 
-### 方式二：给上游包打补丁
+### 方式三：给上游包打补丁
 
 如果你在用 CLI 管理的 profile，并且已经安装了上游 `dsh-approval-gate@0.5.0`，可以只应用完整 diff（`patches/`）：
 
@@ -146,7 +146,7 @@ pnpm install
 
 > 补丁方式保留上游包名与内部 id（`dsh-approval-gate`），适合已经安装上游的人；不要和 fork 包 `dsh-moongate` 同时安装。数据目录同为 `~/.dsh/auto-approve`。
 
-### 配置权限预设（两种方式都需要）
+### 配置权限预设（所有安装方式都需要）
 
 权限预设表在组合时冻结，必须手动加一条到 profile 的 `cordis.patch.yml`：
 
