@@ -41,11 +41,13 @@ writeFileSync(allowlistPath, JSON.stringify({
 
 let flashReply = 'SAFE'
 let flashQueue = []
+let lastPrompt = ''
 const handlers = new Map()
 const routes = new Map()
 const ctx = {
   llm: {
-    stream: async function* () {
+    stream: async function* (req) {
+      lastPrompt = String(req && req.messages && req.messages[0] && req.messages[0].content && req.messages[0].content[0] && req.messages[0].content[0].text || '')
       const text = flashQueue.length ? flashQueue.shift() : flashReply
       yield { type: 'text-delta', text }
       yield { type: 'finish', reason: { kind: 'stop' } }
@@ -270,6 +272,36 @@ assert.ok(commandAuto, 'auto event records commandPattern')
 const commandRule = JSON.parse(readFileSync(allowlistPath, 'utf8')).allowRules.find((rule) => rule.commandPattern === 'npm test')
 assert.ok(commandRule, 'learned rule stores commandPattern')
 assert.equal(commandRule.cwdPrefix, cwd, 'learned rule scopes command to cwd')
+
+// P1 语义复用：只比较真实参数，且 bash 必须同一 program。
+const semanticCwd = join(process.env.DSH_HOME, 'semantic-project')
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  riskyThreshold: 2,
+  semanticReuse: true,
+  shadow: false,
+  sessionMemory: false,
+  allowRules: []
+}), 'utf8')
+flashQueue = ['RISKY:neutral']
+nextCalls = 0
+feedToolCall('semantic-args', 'call-semantic-1', 'npm test')
+const semanticFirst = await approval({ ...bashRequest('semantic-args', 'call-semantic-1', 'npm test'), agent: { session: { id: 'semantic-args', cwd: semanticCwd } } }, nextAllowed)
+assert.equal(semanticFirst, 'allowed-once')
+assert.equal(nextCalls, 1, 'semantic P1 first command asks')
+const semanticKey = 'bash|workspace-write|neutral|cmd=npm test|cwd=' + semanticCwd
+const semanticSample = JSON.parse(readFileSync(learningPath, 'utf8')).history[semanticKey][0]
+assert.match(semanticSample.args, /npm test/, 'sample stores real command args')
+
+flashQueue = ['RISKY:neutral', 'SAME']
+nextCalls = 0
+feedToolCall('semantic-args', 'call-semantic-2', 'npm test')
+const semanticSecond = await approval({ ...bashRequest('semantic-args', 'call-semantic-2', 'npm test'), agent: { session: { id: 'semantic-args', cwd: semanticCwd } } }, nextAllowed)
+assert.equal(semanticSecond, 'allowed-once')
+assert.equal(nextCalls, 0, 'semantic P1 same program auto-allows')
+assert.match(lastPrompt, /真实参数/, 'similarity prompt includes real args')
+assert.match(lastPrompt, /本次命令 program: npm/, 'similarity prompt constrains program')
+assert.match(lastPrompt, /npm test/, 'similarity prompt includes command')
 
 // 行内编辑需要一个已有规则作为编辑对象。
 writeFileSync(allowlistPath, JSON.stringify({

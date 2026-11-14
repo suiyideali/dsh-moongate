@@ -64,6 +64,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Real tool-call input** | Resolves `callId` to the actual `tool/call` arguments (redacted, truncated to 4 KB) |
 | **Confirmation learning** | Neutral operations auto-approve after the threshold; fingerprint hits and semantic same-class verification |
 | **Command-intent learning** | Extracts safe command intents from real bash arguments (`git status`, `npm test`, `gh pr view`, …) and binds them to cwd; `npm test` and `npm publish` no longer share a learning key, and unrecognized commands never enter learning |
+| **Semantic reuse** | After one manual approval, similar neutral operations are checked by Flash (SAME/DIFFERENT) using the real arguments and requiring the same program (bash) or tool; only the current operation is allowed, no rule is sedimented; off by default |
 | **Remember / forget** | One click in the approval view; path fingerprint when available, exact-description matching otherwise; reversible |
 | **Trust roots** | Configure once; operations inside a directory prefix need no prompt |
 | **Session memory** | The same fingerprint approved once in a session repeats without prompting |
@@ -314,7 +315,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 ## Roadmap
 
 - [x] Inline rule editing (tool/mode/category/contains/description);
-- [x] Semantic reuse (Flash verifies similar operations after one approval; allows only the current operation);
+- [x] Semantic reuse (Flash verifies similar operations after one approval using real args and the same program/tool; allows only the current operation);
 - [x] Shadow mode: record "would auto-approve" candidates before enabling;
 - [x] Per-project stats (all sessions, unknown-directory fallback);
 - [x] i18n (follows the browser language; main UI in Chinese/English);

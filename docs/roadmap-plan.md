@@ -94,3 +94,16 @@
 - `npm test` 首次人工、同命令同目录再次自动放行，并沉淀带 `commandPattern`/`cwdPrefix` 的规则。
 - `npm publish` 不复用 `npm test` 的学习结果，重复出现也始终人工。
 - 旧规则/非 bash 工具行为不变；Shadow 仍只记录候选、不写规则/学习/快照。
+
+## 7. 语义匹配使用真实参数（P1）
+
+- 人工批准样本除 `ctx` 外记录真实参数（`args`，已脱敏、截断 600 字符）。
+- `verifySimilarity` 同时接收本次 `judgeArgs` 与 `commandCtx`；prompt 明确要求先比较工具、再比较 bash program，理由只作辅助。
+- bash 且样本带 `commandPattern` 时，program 不同直接返回 `DIFFERENT`，不调用模型。
+- 保持原策略：仅 neutral、已有至少一次人工样本、未达阈值、`semanticReuse` 开启时触发；SAME 只放行当前操作，不沉淀、不改计数。
+
+**验收**
+
+- 样本与本次请求的 prompt 均包含真实参数；`npm test` 的 SAME 路径仍只放行一次。
+- 不同 program 不会因理由相似被判 SAME；无样本/验证失败继续转人工。
+- `npm test` 覆盖真实参数写入与 prompt 内容。
