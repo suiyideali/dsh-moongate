@@ -1709,7 +1709,7 @@ window.__ModuleLoader__.load({
             : React.createElement('div', { className: 'ag-set-suggest-list' },
                 shadowSuggestions.groups.map(function (g) {
                   const label = g.commandPattern || g.sampleJustification || '(无描述)'
-                  return React.createElement('div', { className: 'ag-set-suggest' },
+                  return React.createElement('div', { className: 'ag-set-suggest', key: g.key },
                     React.createElement('div', { className: 'ag-set-suggest-main' },
                       React.createElement('code', null, label),
                       React.createElement('span', { className: 'ag-set-item-meta' }, g.count + ' 次 · ' + (g.wouldPath || 'candidate') + (g.cwd ? ' · ' + g.cwd : ''))),

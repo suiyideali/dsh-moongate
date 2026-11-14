@@ -117,7 +117,10 @@ function aggregateShadowSuggestions(events) {
       }
     }
   }
-  const groups = Array.from(buckets.values()).sort((a, b) => b.count - a.count || b.lastTs - a.lastTs).slice(0, 24)
+  const groups = Array.from(buckets.values())
+    .filter((g) => g.count >= 2)
+    .sort((a, b) => b.count - a.count || b.lastTs - a.lastTs)
+    .slice(0, 24)
   return { groups, total: groups.reduce((n, g) => n + g.count, 0), candidateCount: groups.length }
 }
 
