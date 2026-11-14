@@ -226,6 +226,59 @@ window.__ModuleLoader__.load({
 .ag-row-meta{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
 .ag-dash-title{font-size:12px;line-height:18px;font-weight:600;color:var(--dsw-alias-label-secondary)}
 .ag-dash-hint{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
+/* ---- 2026 visual polish: calmer hierarchy, softer surfaces, overview first ---- */
+.ag-view-head{padding:16px 18px 0;border-bottom:none;background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-state-business-tertiary) 42%,var(--dsw-alias-bg-layer-1)) 0%,var(--dsw-alias-bg-layer-1) 100%);gap:0}
+.ag-view-hero{display:flex;align-items:flex-start;gap:12px;min-width:0}
+.ag-view-mark{flex:none;width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-state-business-primary);background:linear-gradient(145deg,var(--dsw-alias-bg-layer-1),color-mix(in srgb,var(--dsw-alias-state-business-tertiary) 70%,var(--dsw-alias-bg-layer-1)));border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,var(--dsw-alias-border-l1));box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 45%,transparent),0 4px 12px color-mix(in srgb,var(--dsw-alias-state-business-primary) 9%,transparent)}
+.ag-view-heading{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:3px;padding-top:1px}
+.ag-view-title{font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.015em}
+.ag-view-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.ag-view-badges{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;padding-top:4px}
+.ag-view-pill{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 82%,transparent);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:20px;white-space:nowrap}
+.ag-view-pill-dot{width:5px;height:5px;border-radius:999px;background:var(--dsw-alias-state-success-primary)}
+.ag-tabbar{padding:12px 18px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);background:transparent;gap:6px}
+.ag-tab{height:30px;padding:0 12px;border-radius:999px;font-weight:500;border:1px solid transparent}
+.ag-tab-active{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);box-shadow:0 1px 3px color-mix(in srgb,#000 7%,transparent)}
+.ag-tab-count{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 11%,transparent);color:var(--dsw-alias-state-business-primary);font-weight:500}
+.ag-dash-head{padding:14px 18px 0;gap:10px}
+.ag-dash-heading{display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap}
+.ag-dash-title{font-size:14px;line-height:20px;font-weight:600;letter-spacing:-.01em}
+.ag-dash-hint{font-size:11px}
+.ag-dash{padding:10px 18px 16px;gap:12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-bg-module-platform) 38%,transparent) 0%,transparent 110px)}
+.ag-stat-grid-primary{grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.ag-stat{position:relative;overflow:hidden;border-radius:12px;padding:10px 12px 11px;background:linear-gradient(180deg,var(--dsw-alias-bg-layer-1),color-mix(in srgb,var(--dsw-alias-bg-module-platform) 45%,var(--dsw-alias-bg-layer-1)));box-shadow:0 1px 2px color-mix(in srgb,#000 4%,transparent);transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease}
+.ag-stat::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:2px;border-radius:0 2px 2px 0;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent)}
+.ag-stat:hover{transform:translateY(-1px);box-shadow:0 6px 16px color-mix(in srgb,#000 7%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,var(--dsw-alias-border-l1))}
+.ag-stat-label{font-size:11px;line-height:15px}
+.ag-stat-value{font-size:23px;line-height:29px;font-weight:650;letter-spacing:-.02em}
+.ag-stat-sub{font-size:10px;line-height:14px}
+.ag-substat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.ag-substat{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;padding:7px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 84%,transparent)}
+.ag-substat-label{min-width:0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ag-substat-value{flex:none;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.ag-panel{border-radius:12px;padding:12px 14px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 2px color-mix(in srgb,#000 4%,transparent)}
+.ag-panel-title{display:flex;align-items:center;gap:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary);font-weight:600}
+.ag-panel-title::before{content:"";width:5px;height:5px;border-radius:999px;background:var(--dsw-alias-state-business-primary);flex:none;opacity:.8}
+.ag-dist{gap:6px;padding:2px 0}
+.ag-dist-bar{height:10px;box-shadow:inset 0 1px 2px color-mix(in srgb,#000 8%,transparent)}
+.ag-dist-legend{gap:14px;color:var(--dsw-alias-label-secondary)}
+.ag-project-panel{margin-top:0}
+.ag-project-row{grid-template-columns:130px minmax(0,1fr) 84px 170px;padding:3px 0}
+.ag-project-name{font-size:12px}
+.ag-project-bar{height:7px}
+.ag-project-foot{border-top:1px dashed var(--dsw-alias-border-l1);padding-top:6px}
+.ag-attention{margin:10px 18px 0;border-radius:10px}
+.ag-toolbar2{padding:9px 18px}
+.ag-snap-bar{padding:8px 18px}
+.ag-list{padding:6px 18px 48px}
+.ag-empty,.ag-loading{color:var(--dsw-alias-label-tertiary)}
+@media (max-width:760px){
+  .ag-stat-grid-primary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ag-substat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ag-view-badges{display:none}
+  .ag-project-row{grid-template-columns:minmax(0,1fr) 90px}
+  .ag-project-path,.ag-project-bar{display:none}
+}
 `
 
     const VERDICT_LABELS = {
@@ -590,7 +643,7 @@ window.__ModuleLoader__.load({
       const [counters, setCounters] = React.useState(null) // {consecutive, total, limits} | null
       const [kindFilter, setKindFilter] = React.useState(allowedFilters.indexOf(initialPrefs.kindFilter) >= 0 ? initialPrefs.kindFilter : 'all')
       const [viewTab, setViewTab] = React.useState(initialPrefs.viewTab === 'settings' ? 'settings' : 'records')
-      const [dashOpen, setDashOpen] = React.useState(initialPrefs.dashOpen === true)
+      const [dashOpen, setDashOpen] = React.useState(true) // 概览默认展开；折叠只影响当前页面
       const [query, setQuery] = React.useState(typeof initialPrefs.query === 'string' ? initialPrefs.query : '')
       const lastIdRef = React.useRef(0)
       const loadRef = React.useRef(null)
@@ -607,11 +660,11 @@ window.__ModuleLoader__.load({
         if (typeof window === 'undefined') return
         const timer = setTimeout(function () {
           try {
-            window.localStorage.setItem(VIEW_PREF_KEY, JSON.stringify({ kindFilter: kindFilter, viewTab: viewTab, dashOpen: dashOpen, query: query }))
+            window.localStorage.setItem(VIEW_PREF_KEY, JSON.stringify({ kindFilter: kindFilter, viewTab: viewTab, query: query }))
           } catch (e) {}
         }, 200)
         return function () { clearTimeout(timer) }
-      }, [kindFilter, viewTab, dashOpen, query])
+      }, [kindFilter, viewTab, query])
       const [rulesSnap, setRulesSnap] = React.useState(null)
       const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
       const [diffOpen, setDiffOpen] = React.useState(null) // {eventId, path} | null
@@ -876,6 +929,12 @@ window.__ModuleLoader__.load({
           React.createElement('span', { className: 'ag-stat-sub' }, sub || ''),
         )
       }
+      const substat = function (label, value) {
+        return React.createElement('div', { className: 'ag-substat', key: label },
+          React.createElement('span', { className: 'ag-substat-label' }, label),
+          React.createElement('span', { className: 'ag-substat-value' }, String(value)),
+        )
+      }
       const distSeg = function (n, color) {
         const p = pct(n)
         if (p <= 0) return null
@@ -969,8 +1028,25 @@ window.__ModuleLoader__.load({
       }
       return React.createElement('div', { className: 'ag-view' },
         React.createElement('div', { className: 'ag-view-head' },
-          React.createElement('div', { className: 'ag-view-title' }, T('自动放行审批','Approval audit')),
-          React.createElement('div', { className: 'ag-view-sub' }, '本会话审批记录、学习规则与快照（最新在上）'),
+          React.createElement('div', { className: 'ag-view-hero' },
+            React.createElement('div', { className: 'ag-view-mark', 'aria-hidden': 'true' },
+              React.createElement('svg', { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none' },
+                React.createElement('path', { d: 'M12 3.2 19 6v5.2c0 4.4-3 7.6-7 9.3-4-1.7-7-4.9-7-9.3V6l7-2.8Z', stroke: 'currentColor', strokeWidth: 1.5, strokeLinejoin: 'round' }),
+                React.createElement('path', { d: 'm9.1 12.1 2 2 3.9-4', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+              ),
+            ),
+            React.createElement('div', { className: 'ag-view-heading' },
+              React.createElement('div', { className: 'ag-view-title' }, T('自动放行审批','Approval audit')),
+              React.createElement('div', { className: 'ag-view-sub' }, T('本会话审批记录、学习规则与快照（最新在上）','Session approvals, learned rules, and snapshots (newest first)')),
+            ),
+            React.createElement('div', { className: 'ag-view-badges' },
+              React.createElement('span', { className: 'ag-view-pill' },
+                React.createElement('span', { className: 'ag-view-pill-dot' }),
+                T('本地运行','Local'),
+              ),
+              React.createElement('span', { className: 'ag-view-pill' }, T('可追溯','Auditable')),
+            ),
+          ),
         ),
         React.createElement('div', { className: 'ag-tabbar', role: 'tablist', 'aria-label': T('审批视图','Approval audit') },
           [['records', T('记录','Records')], ['settings', T('设置','Settings')]].map(function (t) {
@@ -985,8 +1061,10 @@ window.__ModuleLoader__.load({
         ),
         React.createElement('div', { className: 'ag-records', style: { display: viewTab === 'settings' ? 'none' : 'flex' } },
         React.createElement('div', { className: 'ag-dash-head' },
-          React.createElement('span', { className: 'ag-dash-title' }, T('概览','Overview')),
-          React.createElement('span', { className: 'ag-dash-hint' }, '全部 ' + total + ' 条 · 最近 7 天趋势'),
+          React.createElement('div', { className: 'ag-dash-heading' },
+            React.createElement('span', { className: 'ag-dash-title' }, T('概览','Overview')),
+            React.createElement('span', { className: 'ag-dash-hint' }, T('全部 ','All ') + total + T(' 条 · 最近 7 天趋势',' records · 7-day trend')),
+          ),
           React.createElement('span', { style: { flex: '1 1 auto' } }),
           React.createElement('button', {
             type: 'button', className: 'ag-set-btn ag-btn-xs',
@@ -994,14 +1072,15 @@ window.__ModuleLoader__.load({
           }, dashOpen ? T('收起','Collapse') : T('展开','Expand')),
         ),
         React.createElement('div', { className: 'ag-dash', style: { display: dashOpen ? 'flex' : 'none' } },
-          React.createElement('div', { className: 'ag-stat-grid' },
+          React.createElement('div', { className: 'ag-stat-grid ag-stat-grid-primary' },
             stat(T('自动放行','Auto-approved'), counts.auto, pct(counts.auto) + '% · Flash / 规则'),
             stat(T('Shadow 候选','Shadow candidates'), counts.shadow, pct(counts.shadow) + '% · 仅观察'),
             stat(T('人工通过','Approved by you'), counts.approved, pct(counts.approved) + '%'),
             stat(T('已拒绝','Rejected'), counts.rejected, pct(counts.rejected) + '%'),
             stat(T('需人工介入','Needs human attention'), counts.escalate, pct(counts.escalate) + '%'),
           ),
-          React.createElement('div', { className: 'ag-dist' },
+          React.createElement('div', { className: 'ag-panel ag-dist' },
+            React.createElement('div', { className: 'ag-panel-title' }, T('放行构成','Decision mix')),
             React.createElement('div', { className: 'ag-dist-bar' },
               distSeg(counts.auto, 'var(--dsw-alias-state-success-primary)'),
               distSeg(counts.shadow, 'var(--dsw-alias-state-business-primary)'),
@@ -1017,11 +1096,11 @@ window.__ModuleLoader__.load({
               React.createElement('span', null, '升级 ' + counts.escalate),
             ),
           ),
-          React.createElement('div', { className: 'ag-stat-grid' },
-            stat(T('规则总数','Rules'), ruleStats.total, '白名单规则'),
-            stat('自学习规则', ruleStats.self, 'Flash SAFE 毕业'),
-            stat(T('毕业规则','Graduated'), ruleStats.graduated, '人工确认毕业'),
-            stat('信任目录', ruleStats.trust, '免审批目录'),
+          React.createElement('div', { className: 'ag-substat-grid' },
+            substat(T('规则总数','Rules'), ruleStats.total),
+            substat(T('自学习','Self-learned'), ruleStats.self),
+            substat(T('已毕业','Graduated'), ruleStats.graduated),
+            substat(T('信任目录','Trusted dirs'), ruleStats.trust),
           ),
           React.createElement('div', { className: 'ag-dash-cols' },
             React.createElement('div', { className: 'ag-panel' },
