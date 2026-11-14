@@ -418,6 +418,7 @@ window.__ModuleLoader__.load({
           const nodes = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
           const list = Array.prototype.filter.call(nodes, function (n) { return !n.disabled && n.offsetParent !== null })
           if (list.length === 0) { e.preventDefault(); panel.focus(); return }
+          if (!panel.contains(document.activeElement)) { e.preventDefault(); list[0].focus(); return }
           const first = list[0]
           const last = list[list.length - 1]
           if (e.shiftKey && (document.activeElement === first || document.activeElement === panel)) {
@@ -576,10 +577,13 @@ window.__ModuleLoader__.load({
         }
       }, [viewTab])
       React.useEffect(function () {
-        try {
-          if (typeof window === 'undefined') return
-          window.localStorage.setItem(VIEW_PREF_KEY, JSON.stringify({ kindFilter: kindFilter, viewTab: viewTab, dashOpen: dashOpen, query: query }))
-        } catch (e) {}
+        if (typeof window === 'undefined') return
+        const timer = setTimeout(function () {
+          try {
+            window.localStorage.setItem(VIEW_PREF_KEY, JSON.stringify({ kindFilter: kindFilter, viewTab: viewTab, dashOpen: dashOpen, query: query }))
+          } catch (e) {}
+        }, 200)
+        return function () { clearTimeout(timer) }
       }, [kindFilter, viewTab, dashOpen, query])
       const [rulesSnap, setRulesSnap] = React.useState(null)
       const [snapIds, setSnapIds] = React.useState(null) // Set<eventId> | null（当前存在快照的事件）
@@ -596,15 +600,26 @@ window.__ModuleLoader__.load({
           .then(function (res) {
             if (!res || !res.ok) return
             if (sid !== sessionRef.current) return
-            setSnapStats({ count: res.count || 0, bytes: res.bytes || 0 })
-            setSnapIds(new Set((res.ids || []).map(String)))
+            const nextStats = { count: res.count || 0, bytes: res.bytes || 0 }
+            setSnapStats(function (prev) {
+              return prev && prev.count === nextStats.count && prev.bytes === nextStats.bytes ? prev : nextStats
+            })
+            const nextIds = new Set((res.ids || []).map(String))
+            setSnapIds(function (prev) {
+              if (!prev || prev.size !== nextIds.size) return nextIds
+              for (const id of nextIds) { if (!prev.has(id)) return nextIds }
+              return prev
+            })
           })
           .catch(function () {})
         fetch('/api/auto-approve/snapshots-stats', { headers: { 'cache-control': 'no-cache' } })
           .then(function (r) { return r.json() })
           .then(function (res) {
             if (!res || !res.ok) return
-            setGlobalSnapStats({ count: res.count || 0, bytes: res.bytes || 0 })
+            const nextGlobal = { count: res.count || 0, bytes: res.bytes || 0 }
+            setGlobalSnapStats(function (prev) {
+              return prev && prev.count === nextGlobal.count && prev.bytes === nextGlobal.bytes ? prev : nextGlobal
+            })
           })
           .catch(function () {})
       }
@@ -613,7 +628,13 @@ window.__ModuleLoader__.load({
       const loadRules = function () {
         fetch('/api/auto-approve/rules', { headers: { 'cache-control': 'no-cache' } })
           .then(function (r) { return r.json() })
-          .then(function (res) { if (res && res.config) setRulesSnap(res) })
+          .then(function (res) {
+            if (!res || !res.config) return
+            setRulesSnap(function (prev) {
+              try { if (prev && JSON.stringify(prev) === JSON.stringify(res)) return prev } catch (e) {}
+              return res
+            })
+          })
           .catch(function () {})
       }
 
@@ -624,7 +645,11 @@ window.__ModuleLoader__.load({
           .then(function (res) {
             if (!res || !res.ok) return
             if (sid !== sessionRef.current) return
-            setCounters({ consecutive: res.consecutive, total: res.total, limits: res.limits })
+            const nextCounters = { consecutive: res.consecutive, total: res.total, limits: res.limits }
+            setCounters(function (prev) {
+              try { if (prev && JSON.stringify(prev) === JSON.stringify(nextCounters)) return prev } catch (e) {}
+              return nextCounters
+            })
           })
           .catch(function () {})
       }
@@ -693,9 +718,9 @@ window.__ModuleLoader__.load({
         if (!sessionId) { setEvents([]); loadSnapStats(null); return }
         let alive = true
         let tick = 0
-        const load = function () {
-          if (tabRef.current !== 'records') return
-          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        const load = function (force) {
+          if (!force && tabRef.current !== 'records') return
+          if (!force && typeof document !== 'undefined' && document.visibilityState === 'hidden') return
           const full = (tick % 12) === 0 // 首次全量；之后增量，每分钟兜底全量
           tick += 1
           const since = full ? 0 : lastIdRef.current
@@ -725,8 +750,8 @@ window.__ModuleLoader__.load({
           loadRules()
         }
         loadRef.current = load
-        load()
-        const timer = setInterval(load, 5000)
+        load(true)
+        const timer = setInterval(function () { load(false) }, 5000)
         return function () {
           alive = false
           clearInterval(timer)
