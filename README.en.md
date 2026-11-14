@@ -74,6 +74,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Rule health check** | Flags generic `contains`, blanket mode rules and huge trust roots, with narrowing suggestions |
 | **Reject escalation** | 3 consecutive / 20 total rejections → `escalate` event and a red "needs human" badge |
 | **Two-stage judging** | Fast `ALLOW/REVIEW` screen + deep re-check; off by default |
+| **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots |
 | **Approval dashboard** | Stat cards, distribution bar, 7-day trend, top tools, filters/search, date-grouped timeline |
 
 ## Install
@@ -194,11 +195,11 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 
 The approval view embeds the full Auto approval settings (the same configuration as the Settings page):
 
-- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / ⑤ Learning / ⑥ Auto learning / ⑦ Rule library;
+- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / ⑤ Learning / ⑥ Auto learning / ⑦ Rule library;
 - click to scroll to the card; changes apply hot without leaving the view;
 - the Settings → Auto approval entry remains as a second entry point.
 
-Seven configuration cards:
+Eight configuration cards:
 
 | Card | Content |
 | --- | --- |
@@ -206,9 +207,12 @@ Seven configuration cards:
 | ② Allowlist | Auto-approve rules with source and hit count |
 | ③ denyRules | Permanently manual rules |
 | ④ Flash | `riskyThreshold`, `judgeTimeoutMs` |
+| Shadow | Observation toggle; candidates are recorded, not auto-approved |
 | ⑤ Learning | Keys currently learning and their progress |
 | ⑥ Auto learning | Session memory, promotion, graduation, self-learning, two-stage |
 | ⑦ Rule library | Unified rule management + health check + export |
+
+> **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
 
 ## How it works
 
@@ -268,6 +272,7 @@ Everything lives in `~/.dsh/auto-approve/`; edits to `allowlist.json` are hot-re
 | `selfLearnSessions` | 2 | Sessions for self-learning |
 | `selfLearnMaxRules` | 50 | Self-learned rule cap |
 | `twoStage` | false | Two-stage judging switch |
+| `shadow` | false | Shadow observation mode; candidates are recorded but not auto-approved |
 | `stage1Provider` / `stage1Model` | empty | Fast-screen model |
 | `denyEscalateConsecutive` | 3 | Consecutive rejection escalation |
 | `denyEscalateTotal` | 20 | Total rejection escalation |
@@ -305,7 +310,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 
 - [ ] Inline rule editing (enable/disable/delete today);
 - [ ] Semantic reuse (generalize from a single approval);
-- [ ] Shadow mode: record "would auto-approve" candidates before enabling;
+- [x] Shadow mode: record "would auto-approve" candidates before enabling;
 - [ ] Per-project stats and trends;
 - [ ] i18n for UI copy.
 

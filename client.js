@@ -1,5 +1,5 @@
 /**
- * dsh-approval-gate — 自动审批审查界面（浏览器端 bundle）
+ * dsh-moongate — 自动审批审查界面（浏览器端 bundle）
  *
  * 提供两处 UI（严格按 DSH 设计语言，--dsw-alias-* tokens）：
  * 1. ✅ 自动放行提示条：conversation.input.dock（输入框上方独立行，order=30，
@@ -12,7 +12,7 @@
  * （events.jsonl 由 host 插件在每次自动放行时追加）。
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-approval-gate',
+  id: 'dsh-moongate',
   factory: (require) => {
     var module = { exports: {} }
     var exports = module.exports
@@ -218,9 +218,19 @@ window.__ModuleLoader__.load({
       'flash-safe': 'Flash 判定安全',
       learned: '沉淀规则',
       fpHit: '已确认操作',
-      'flash-same': 'Flash 同类验证'
+      'flash-same': 'Flash 同类验证',
+      'shadow-candidate': 'Shadow 候选'
     }
     const VERDICT_NEUTRAL = new Set(['rule', 'learned', 'fpHit', 'flash-same'])
+    const SHADOW_PATH_LABELS = {
+      trust: '信任目录',
+      'session-memory': '会话记忆',
+      rule: '白名单规则',
+      'flash-safe': 'Flash SAFE',
+      learned: '沉淀规则',
+      fpHit: '已确认操作',
+      'flash-same': '同类验证'
+    }
     const HARD_CATEGORIES = new Set(['deletion', 'credential', 'remote', 'system', 'bulk'])
 
     // 拒绝记录文案：按 host 记录的 path（判定路径）精确分类
@@ -764,10 +774,11 @@ window.__ModuleLoader__.load({
         if (k === 'manual-approved') return 'approved'
         if (k === 'manual-rejected') return 'rejected'
         if (k === 'escalate') return 'escalate'
+        if (k === 'shadow-candidate') return 'shadow'
         return 'auto'
       }
       const rows = (events || []).filter(function (ev) { return (ev.kind || 'auto') !== 'manual-pending' })
-      const counts = { auto: 0, approved: 0, rejected: 0, escalate: 0 }
+      const counts = { auto: 0, approved: 0, rejected: 0, escalate: 0, shadow: 0 }
       rows.forEach(function (ev) { counts[kindKey(ev)] = (counts[kindKey(ev)] || 0) + 1 })
       const total = rows.length
       const pct = function (n) { return total ? Math.round(n * 100 / total) : 0 }
@@ -818,6 +829,7 @@ window.__ModuleLoader__.load({
       const chips = [
         ['all', '全部', total],
         ['auto', '自动放行', counts.auto],
+        ['shadow', 'Shadow 候选', counts.shadow],
         ['approved', '人工通过', counts.approved],
         ['rejected', '已拒绝', counts.rejected],
         ['escalate', '需人工介入', counts.escalate],
@@ -861,6 +873,11 @@ window.__ModuleLoader__.load({
           tagCls = 'ag-tag-err'
           glyphCls = 'ag-row-glyph-err'
           glyph = React.createElement('span', null, '⚠')
+        } else if (kind === 'shadow-candidate') {
+          const wp = ev.wouldPath || ev.path || ''
+          tagText = 'Shadow 候选 · 本可自动放行' + (SHADOW_PATH_LABELS[wp] ? ' · ' + SHADOW_PATH_LABELS[wp] : '')
+          tagCls = 'ag-tag-neutral'
+          glyph = React.createElement('span', null, '◌')
         } else {
           tagText = '自动放行 · ' + (VERDICT_LABELS[ev.verdict] || ev.verdict || 'auto')
           tagCls = 'ag-tag' + (VERDICT_NEUTRAL.has(ev.verdict) ? ' ag-tag-neutral' : '')
@@ -884,8 +901,11 @@ window.__ModuleLoader__.load({
             ev.args
               ? React.createElement('div', { className: 'ag-args', title: ev.args }, '参数：' + String(ev.args).slice(0, 240))
               : null,
+            ev.cwd
+              ? React.createElement('div', { className: 'ag-row-meta', title: ev.cwd }, '目录：' + String(ev.cwd).slice(0, 180))
+              : null,
             React.createElement('div', { className: 'ag-row-actions' },
-              kind !== 'manual-rejected' && kind !== 'escalate' && ev.mode
+              kind !== 'manual-rejected' && kind !== 'escalate' && kind !== 'shadow-candidate' && ev.mode
                 ? React.createElement('button', {
                     type: 'button', className: 'ag-set-btn ag-btn-xs',
                     disabled: busy,
@@ -943,6 +963,7 @@ window.__ModuleLoader__.load({
         React.createElement('div', { className: 'ag-dash', style: { display: dashOpen ? 'flex' : 'none' } },
           React.createElement('div', { className: 'ag-stat-grid' },
             stat('自动放行', counts.auto, pct(counts.auto) + '% · Flash / 规则'),
+            stat('Shadow 候选', counts.shadow, pct(counts.shadow) + '% · 仅观察'),
             stat('人工通过', counts.approved, pct(counts.approved) + '%'),
             stat('已拒绝', counts.rejected, pct(counts.rejected) + '%'),
             stat('需人工介入', counts.escalate, pct(counts.escalate) + '%'),
@@ -950,12 +971,14 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'ag-dist' },
             React.createElement('div', { className: 'ag-dist-bar' },
               distSeg(counts.auto, 'var(--dsw-alias-state-success-primary)'),
+              distSeg(counts.shadow, 'var(--dsw-alias-state-business-primary)'),
               distSeg(counts.approved, 'var(--dsw-alias-state-warn-primary)'),
               distSeg(counts.rejected, 'var(--dsw-alias-state-error-primary)'),
               distSeg(counts.escalate, 'var(--dsw-alias-state-error-label)'),
             ),
             React.createElement('div', { className: 'ag-dist-legend' },
               React.createElement('span', null, '自动 ' + counts.auto),
+              React.createElement('span', null, 'Shadow ' + counts.shadow),
               React.createElement('span', null, '人工 ' + counts.approved),
               React.createElement('span', null, '拒绝 ' + counts.rejected),
               React.createElement('span', null, '升级 ' + counts.escalate),
@@ -1082,7 +1105,7 @@ window.__ModuleLoader__.load({
               React.createElement('div', { className: 'ag-settings-nav' },
                 React.createElement('div', { className: 'ag-settings-title' }, '自动审批设置'),
                 React.createElement('div', { className: 'ag-settings-chips' },
-                  [['setup', '初始化'], ['pipeline', '判定管道'], ['deny', '① DENY'], ['allow', '② 白名单'], ['denyrules', '③ 永久人工'], ['flash', '④ Flash'], ['learning', '⑤ 学习'], ['autolearn', '⑥ 自动学习'], ['library', '⑦ 规则库']].map(function (item) {
+                  [['setup', '初始化'], ['pipeline', '判定管道'], ['deny', '① DENY'], ['allow', '② 白名单'], ['denyrules', '③ 永久人工'], ['flash', '④ Flash'], ['shadow', 'Shadow'], ['learning', '⑤ 学习'], ['autolearn', '⑥ 自动学习'], ['library', '⑦ 规则库']].map(function (item) {
                     return React.createElement('button', {
                       type: 'button', key: item[0], className: 'ag-settings-chip',
                       onClick: function () { scrollToSection('ag-tabsec-' + item[0]) },
@@ -1446,6 +1469,29 @@ window.__ModuleLoader__.load({
           ),
         ),
 
+        // ---- Shadow 模式（观察期：只记录本可自动放行的候选，不真正放行） ----
+        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'shadow' },
+          React.createElement('div', { className: 'ag-set-card-head' },
+            React.createElement('div', { className: 'ag-set-card-title' },
+              React.createElement('span', { className: 'ag-set-stage' }, 'Shadow'),
+              '观察模式'),
+            React.createElement('p', { className: 'ag-set-card-sub' },
+              '开启后，命中原有自动放行路径（信任目录、会话记忆、白名单规则、Flash SAFE、沉淀规则、已确认操作）的请求仍转人工；系统只记录一条 Shadow 候选，告诉你“如果关闭观察，这次本可自动放行”。观察期不写规则、不写学习计数、不生成快照。')),
+          React.createElement('div', { className: 'ag-set-row' },
+            React.createElement('span', { className: 'ag-set-item-meta' }, 'Shadow 模式：'),
+            React.createElement('button', {
+              type: 'button', className: 'ag-set-btn', disabled: busy,
+              onClick: function () { api({ op: 'set', kind: 'shadow', value: !(cfg.shadow === true) }) },
+            }, cfg.shadow === true ? '关闭' : '开启'),
+            React.createElement('span', { className: 'ag-set-item-meta' },
+              cfg.shadow === true ? '观察中：所有候选转人工，仅记录' : '当前关闭：按正常策略自动放行'),
+          ),
+          React.createElement('div', { className: 'ag-set-row' },
+            React.createElement('span', { className: 'ag-set-item-meta' },
+              '提示：候选记录在「记录」页的 Shadow 筛选中查看；确认候选足够可信后再关闭观察。'),
+          ),
+        ),
+
         // ---- 学习状态（⑤ 学习沉淀） ----
         React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'learning' },
           React.createElement('div', { className: 'ag-set-card-head' },
@@ -1679,11 +1725,11 @@ window.__ModuleLoader__.load({
         let styleEl = null
         try {
           styleEl = document.createElement('style')
-          styleEl.setAttribute('data-plugin-css', 'dsh-approval-gate')
+          styleEl.setAttribute('data-plugin-css', 'dsh-moongate')
           styleEl.textContent = CSS
           document.head.appendChild(styleEl)
         } catch (e) {
-          console.error('[dsh-approval-gate] 注入样式失败：' + String((e && e.message) || e))
+          console.error('[dsh-moongate] 注入样式失败：' + String((e && e.message) || e))
         }
         ctx.effect(() => {
           return () => {
