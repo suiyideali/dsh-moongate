@@ -22,7 +22,7 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
 assert.ok(client.includes('function T(zh, en)'), 'client has i18n helper')
-for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令']) {
+for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
 
@@ -227,6 +227,10 @@ const feedToolCall = (sid, callId, command) => sessionEvent(
   { id: sid },
   { type: 'tool/call', data: { callId, name: 'bash', arguments: JSON.stringify({ command }) } }
 )
+const feedToolCallTool = (sid, callId, name, args) => sessionEvent(
+  { id: sid },
+  { type: 'tool/call', data: { callId, name, arguments: JSON.stringify(args) } }
+)
 
 // 只读快速路径：git status 这类严格只读命令首次安装即可自动放行；sed -i / 越界路径仍转人工。
 writeFileSync(allowlistPath, JSON.stringify({
@@ -290,6 +294,65 @@ feedToolCall('readonly-test', 'call-readonly-5', 'cat $HOME/.ssh/id_rsa')
 const varOut = await approval(bashRequest('readonly-test', 'call-readonly-5', 'cat $HOME/.ssh/id_rsa'), nextAllowed)
 assert.equal(varOut, 'allowed-once')
 assert.equal(nextCalls, 1, 'shell variable expansion asks human')
+
+// 项目信任：只放行项目内的 edit/write 和已识别 test/build；push 仍转人工。
+const projectRoot = join(process.env.DSH_HOME, 'trusted-project')
+mkdirSync(projectRoot, { recursive: true })
+const projectFile = join(projectRoot, 'a.js')
+writeFileSync(projectFile, 'const a = 1\n', 'utf8')
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  riskyThreshold: 1,
+  semanticReuse: false,
+  shadow: false,
+  sessionMemory: false,
+  allowRules: []
+}), 'utf8')
+const addProject = await callApi('/api/auto-approve/rules', 'POST', { op: 'add', kind: 'projectTrust', value: projectRoot })
+assert.equal(addProject.status, 200)
+assert.equal(addProject.json.ok, true)
+const projectSnap = await callApi('/api/auto-approve/rules', 'GET')
+assert.ok((projectSnap.json.config.projectTrust || []).includes(projectRoot), 'project trust persisted')
+
+feedToolCallTool('project-test', 'call-project-edit', 'edit', { path: projectFile, old_string: '1', new_string: '2' })
+nextCalls = 0
+const projectEditOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'edit',
+  callId: 'call-project-edit',
+  reason: 'escalate sandbox to danger-full-access: write ' + projectFile,
+}, nextAllowed)
+assert.equal(projectEditOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows edit inside root')
+const projectEditEvent = readEvents().filter((ev) => ev.kind === 'auto' && ev.path === 'project-trust').pop()
+assert.ok(projectEditEvent, 'project trust auto event recorded')
+assert.equal(projectEditEvent.projectRoot, projectRoot, 'project trust records root')
+
+nextCalls = 0
+feedToolCall('project-test', 'call-project-bash', 'cd ' + projectRoot + ' && npm test')
+const projectBashOut = await approval(bashRequest('project-test', 'call-project-bash', 'cd ' + projectRoot + ' && npm test'), nextAllowed)
+assert.equal(projectBashOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows recognized test command inside root')
+
+nextCalls = 0
+feedToolCall('project-test', 'call-project-push', 'git push')
+const projectPushOut = await approval(bashRequest('project-test', 'call-project-push', 'git push'), nextAllowed)
+assert.equal(projectPushOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'project trust does not auto-allow push')
+
+const removeProject = await callApi('/api/auto-approve/rules', 'POST', { op: 'remove', kind: 'projectTrust', value: projectRoot })
+assert.equal(removeProject.status, 200)
+assert.equal(removeProject.json.ok, true)
+feedToolCallTool('project-test', 'call-project-edit-2', 'edit', { path: projectFile, old_string: '2', new_string: '3' })
+nextCalls = 0
+const projectEditAgain = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'edit',
+  callId: 'call-project-edit-2',
+  reason: 'escalate sandbox to danger-full-access: write ' + projectFile,
+}, nextAllowed)
+assert.equal(projectEditAgain, 'allowed-once')
+assert.equal(nextCalls, 1, 'removed project trust asks human again')
 
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,

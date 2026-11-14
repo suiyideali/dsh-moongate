@@ -383,6 +383,7 @@ function recordApprovalEvent(sessionId, toolName, mode, reason, justification, v
   // cwd：审批时的会话工作目录（供按项目/目录统计；旧事件没有这个字段）
   if (o.cwd) ev.cwd = String(o.cwd).slice(0, 500)
   if (o.commandPattern) ev.commandPattern = String(o.commandPattern).slice(0, 160)
+  if (o.projectRoot) ev.projectRoot = String(o.projectRoot).slice(0, 500)
   if (o.wouldPath) ev.wouldPath = String(o.wouldPath).slice(0, 80)
   // path：判定路径标识（hard-category / unknown-category / deny-rule / deny / flash-failed / neutral-reject / neutral-confirm）
   if (o.path) ev.path = o.path
@@ -454,6 +455,7 @@ function getRulesSnapshot() {
       judgeTimeoutMs: config.judgeTimeoutMs || 20000,
       learning: { enabled: learning.enabled !== false },
       trustRoots: Array.isArray(config.trustRoots) ? config.trustRoots : [],
+      projectTrust: Array.isArray(config.projectTrust) ? config.projectTrust : [],
       sessionMemory: config.sessionMemory !== false,
       promotionSessions: config.promotionSessions || 2,
       graduationThreshold: config.graduationThreshold || 3,
@@ -678,9 +680,13 @@ function applyRuleOp(op, kind, value) {
   }
 
   if (op === 'add') {
-    if (kind === 'denyKeywords' || kind === 'hardCategories' || kind === 'trustRoots') {
-      const str = String(value || '').trim()
+    if (kind === 'denyKeywords' || kind === 'hardCategories' || kind === 'trustRoots' || kind === 'projectTrust') {
+      let str = String(value || '').trim()
       if (!str) return { ok: false, error: '值不能为空' }
+      if (kind === 'projectTrust') {
+        str = normalizeProjectRootPath(str)
+        if (!str) return { ok: false, error: '项目信任必须是绝对路径，且不能是根目录或 home' }
+      }
       if (!list.includes(str)) {
         list.push(str)
         audit(`CONFIG  ${kind} + ${str}`)
@@ -707,8 +713,9 @@ function applyRuleOp(op, kind, value) {
 
   if (op === 'remove') {
     const before = list.length
-    if (kind === 'denyKeywords' || kind === 'hardCategories' || kind === 'trustRoots') {
-      const str = String(value || '').trim()
+    if (kind === 'denyKeywords' || kind === 'hardCategories' || kind === 'trustRoots' || kind === 'projectTrust') {
+      let str = String(value || '').trim()
+      if (kind === 'projectTrust') str = normalizeProjectRootPath(str)
       for (let i = list.length - 1; i >= 0; i--) if (String(list[i]) === str) list.splice(i, 1)
       if (list.length !== before) audit(`CONFIG  ${kind} - ${str}`)
     } else {
@@ -806,6 +813,7 @@ function normalizeConfig(raw) {
   cfg.judgeTimeoutMs = cfg.judgeTimeoutMs || 20000
   cfg.learning = cfg.learning || { enabled: true }
   cfg.trustRoots = Array.isArray(cfg.trustRoots) ? cfg.trustRoots : []
+  cfg.projectTrust = Array.from(new Set((Array.isArray(cfg.projectTrust) ? cfg.projectTrust : []).map(normalizeProjectRootPath).filter(Boolean))).slice(0, 20)
   cfg.sessionMemory = cfg.sessionMemory !== false
   cfg.promotionSessions = Number.isFinite(cfg.promotionSessions) && cfg.promotionSessions > 0 ? cfg.promotionSessions : 2
   cfg.graduationThreshold = Number.isFinite(cfg.graduationThreshold) && cfg.graduationThreshold > 0 ? cfg.graduationThreshold : 3
@@ -837,6 +845,7 @@ if (!config || typeof config !== 'object') {
     judgeTimeoutMs: 20000,
     learning: { enabled: true },
     trustRoots: [],
+    projectTrust: [],
     sessionMemory: true,
     promotionSessions: 2,
     graduationThreshold: 3,
@@ -1121,6 +1130,58 @@ function trustHit(justification) {
       const rabs = resolveAbsPath(r, '')
       if (abs === rabs || abs.startsWith(rabs.endsWith('/') ? rabs : rabs + '/')) return r
     }
+  }
+  return null
+}
+
+// 项目信任：只对显式添加的项目根目录放行 edit/write 和已识别的 test/build 命令；
+// push、网络、删除等没有 commandCtx 的操作仍然转人工。
+function normalizeProjectRootPath(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  const abs = resolveAbsPath(s, '')
+  if (!abs || !abs.startsWith('/') || abs === '/' || abs === homedir()) return ''
+  return abs.replace(/\/+$/, '') || ''
+}
+
+function pathsFromToolArgs(argsText) {
+  const out = []
+  const obj = parseToolArgs(argsText)
+  const add = (v) => {
+    if (typeof v !== 'string') return
+    const t = v.trim()
+    if (t) out.push(t)
+  }
+  if (obj && typeof obj === 'object') {
+    for (const key of ['path', 'file_path', 'filePath', 'target', 'file']) add(obj[key])
+    if (Array.isArray(obj.files)) for (const f of obj.files) {
+      if (typeof f === 'string') add(f)
+      else if (f && typeof f === 'object') add(f.path || f.file_path)
+    }
+  }
+  if (out.length) return out
+  const text = String(argsText || '')
+  for (const m of text.matchAll(/(?:~\/|\/)[\w@.\/-]+/g)) add(m[0])
+  return out
+}
+
+function projectTrustHit(toolName, justification, argsText, commandCtx, sessionCwd) {
+  const roots = (Array.isArray(config.projectTrust) ? config.projectTrust : [])
+    .map(normalizeProjectRootPath).filter(Boolean)
+  if (roots.length === 0) return null
+  if (toolName === 'bash') {
+    if (!commandCtx || !commandCtx.eligible || !commandCtx.cwd) return null
+    for (const root of roots) if (isPathWithin(commandCtx.cwd, root)) return root
+    return null
+  }
+  if (toolName !== 'edit' && toolName !== 'write') return null
+  let paths = pathsFromToolArgs(argsText)
+  if (paths.length === 0) {
+    for (const m of String(justification || '').matchAll(/(?:~\/|\/)[\w@.\/-]+/g)) paths.push(m[0])
+  }
+  if (paths.length === 0) return null
+  for (const root of roots) {
+    if (paths.every((p) => isPathWithin(resolveAbsPath(p, sessionCwd), root))) return root
   }
   return null
 }
@@ -2385,7 +2446,20 @@ export default {
           return 'allowed-once'
         }
 
-        // 2a. 可写根目录信任：一次性配置，范围内的操作直接放行（零点击）
+        // 2a. 项目信任：仅 edit/write + 已识别的安全 bash（test/build），且必须在该项目根目录内。
+        // 没有 commandCtx 的 push/网络/删除不会被放行。
+        const projectRoot = projectTrustHit(toolName, justification, callInfo && callInfo.arguments, commandCtx, sessionCwd)
+        if (projectRoot) {
+          if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'project-trust')
+          audit(`PROJECT ${toolName} mode=${mode || 'none'} root=${projectRoot} cmd=${commandCtx ? commandCtx.pattern : ''}`)
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'project-trust', {
+            baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, commandPattern,
+            projectRoot, path: 'project-trust'
+          })
+          return 'allowed-once'
+        }
+
+        // 2b. 可写根目录信任：一次性配置，范围内的操作直接放行（零点击）
         const trustedRoot = trustHit(justification)
         if (trustedRoot) {
           if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'trust')

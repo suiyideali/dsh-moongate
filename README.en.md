@@ -64,6 +64,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Real tool-call input** | Resolves `callId` to the actual `tool/call` arguments (redacted, truncated to 4 KB) |
 | **Confirmation learning** | Neutral operations auto-approve after the threshold; fingerprint hits and semantic same-class verification |
 | **Read-only fast path** | Works on first install: strictly read-only `git status` / `gh pr view` / `ls` / `cat` / `grep` / `sed -n` commands need no confirmation; only whitelisted programs, no pipes/redirection, paths inside the command cwd, and no rules/learning/snapshots written |
+| **Project trust** | Opt in per project root: only `edit`/`write` and recognized `test`/`build` commands under that root are allowed; `git push`, network, and deletion still ask. Configure under ⑦ Rule library → Trusted dirs |
 | **Command-intent learning** | Extracts safe command intents from real bash arguments (`git status`, `npm test`, `gh pr view`, …) and binds them to cwd; `npm test` and `npm publish` no longer share a learning key, and unrecognized commands never enter learning |
 | **Semantic reuse** | After one manual approval, similar neutral operations are checked by Flash (SAME/DIFFERENT) using the real arguments and requiring the same program (bash) or tool; only the current operation is allowed, no rule is sedimented; off by default |
 | **Remember / forget** | One click in the approval view; path fingerprint when available, exact-description matching otherwise; reversible |
@@ -325,6 +326,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 - [x] Command-intent learning (safe bash commands + cwd get separate counters/rules; unrecognized commands are not learned);
 - [x] Shadow candidate grouping and rule suggestions (same command/directory candidates aggregate; create a rule manually);
 - [x] First-use read-only fast path (strictly read-only, inside cwd, no pipes/redirection, no setup).
+- [x] Project-level trust: allow edit/write and recognized test/build inside a project root; push/network/deletion still ask.
 
 ## FAQ
 
