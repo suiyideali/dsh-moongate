@@ -334,6 +334,7 @@ function recordApprovalEvent(sessionId, toolName, mode, reason, justification, v
   if (o.category) ev.category = o.category
   // cwd：审批时的会话工作目录（供按项目/目录统计；旧事件没有这个字段）
   if (o.cwd) ev.cwd = String(o.cwd).slice(0, 500)
+  if (o.commandPattern) ev.commandPattern = String(o.commandPattern).slice(0, 160)
   if (o.wouldPath) ev.wouldPath = String(o.wouldPath).slice(0, 80)
   // path：判定路径标识（hard-category / unknown-category / deny-rule / deny / flash-failed / neutral-reject / neutral-confirm）
   if (o.path) ev.path = o.path
@@ -592,7 +593,7 @@ function applyRuleOp(op, kind, value) {
     const previous = list[idx]
     const next = Object.assign({}, previous, patch)
     delete next.id
-    for (const field of ['tool', 'mode', 'category', 'contains', 'description']) {
+    for (const field of ['tool', 'mode', 'category', 'contains', 'description', 'commandPattern', 'cwdPrefix']) {
       if (patch[field] !== undefined) next[field] = String(patch[field] || '').trim()
     }
     next.hitCount = previous.hitCount || 0
@@ -616,6 +617,8 @@ function applyRuleOp(op, kind, value) {
       if ((r.mode || '') !== (v.mode || '')) continue
       if ((r.category || '') !== (v.category || '')) continue
       if (String(r.contains || '') !== String(v.contains || '')) continue
+      if (v.commandPattern !== undefined && String(r.commandPattern || '') !== String(v.commandPattern || '')) continue
+      if (v.cwdPrefix !== undefined && String(r.cwdPrefix || '') !== String(v.cwdPrefix || '')) continue
       if (v.signature !== undefined && r.signature !== v.signature && r.graduation !== true) continue
       r.disabled = r.disabled !== true
       found++
@@ -636,9 +639,11 @@ function applyRuleOp(op, kind, value) {
       }
     } else {
       if (!value || typeof value !== 'object') return { ok: false, error: '规则必须是对象' }
-      const hasAny = value.tool || value.mode || value.category || value.contains
-      if (!hasAny) return { ok: false, error: '规则至少需要 tool/mode/category/contains 之一' }
-      const dup = list.some((r) => r && r.tool === value.tool && r.mode === value.mode && r.category === value.category && r.contains === value.contains)
+      const invalid = validateRuleEdit(value, kind, null)
+      if (invalid) return { ok: false, error: invalid }
+      const hasAny = value.tool || value.mode || value.category || value.contains || value.commandPattern
+      if (!hasAny) return { ok: false, error: '规则至少需要 tool/mode/category/contains/commandPattern 之一' }
+      const dup = list.some((r) => r && r.tool === value.tool && r.mode === value.mode && r.category === value.category && r.contains === value.contains && String(r.commandPattern || '') === String(value.commandPattern || '') && String(r.cwdPrefix || '') === String(value.cwdPrefix || ''))
       if (!dup) {
         if (!value.description) value.description = '用户自定义'
         if (!value.source) value.source = 'user'
@@ -662,7 +667,7 @@ function applyRuleOp(op, kind, value) {
       const v = value || {}
       for (let i = list.length - 1; i >= 0; i--) {
         const r = list[i] || {}
-        if (r.tool === v.tool && r.mode === v.mode && r.category === v.category && r.contains === v.contains && (v.signature === undefined || r.signature === v.signature)) list.splice(i, 1)
+        if (r.tool === v.tool && r.mode === v.mode && r.category === v.category && r.contains === v.contains && String(r.commandPattern || '') === String(v.commandPattern || '') && String(r.cwdPrefix || '') === String(v.cwdPrefix || '') && (v.signature === undefined || r.signature === v.signature)) list.splice(i, 1)
       }
       if (list.length !== before) audit(`CONFIG  ${kind} - ${JSON.stringify(v)}`)
     }
@@ -746,7 +751,7 @@ function audit(line) {
 function normalizeConfig(raw) {
   const cfg = raw && typeof raw === 'object' ? raw : {}
   cfg.denyKeywords = cfg.denyKeywords || DEFAULT_DENY_KEYWORDS
-  cfg.allowRules = (cfg.allowRules || DEFAULT_ALLOW_RULES).map(decorateRule)
+  cfg.allowRules = (cfg.allowRules || DEFAULT_ALLOW_RULES).map((rule) => decorateRule(rule, 'allowRules'))
   cfg.denyRules = cfg.denyRules || []
   cfg.hardCategories = cfg.hardCategories || DEFAULT_HARD_CATEGORIES
   cfg.riskyThreshold = cfg.riskyThreshold || 3
@@ -876,7 +881,37 @@ function sessionMemoryHit(sessionId, tool, mode, fp) {
   if (entry.category !== 'neutral') return null
   return entry
 }
-function rememberApproved(sessionId, tool, mode, fp, category, justification) {
+// 构造学习/拒绝规则：命令意图优先用 commandPattern + cwdPrefix，旧路径指纹用 contains。
+function buildRule(tool, mode, category, fp, cmd, description, source) {
+  const rule = { tool, category }
+  if (mode) rule.mode = mode
+  if (cmd && cmd.eligible) {
+    rule.commandPattern = cmd.pattern
+    rule.cwdPrefix = cmd.cwd
+  } else if (fp) {
+    rule.contains = fp
+  }
+  if (description) rule.description = description
+  if (source) rule.source = source
+  rule.createdAt = Date.now()
+  rule.hitCount = 0
+  return rule
+}
+function sameRule(a, b) {
+  if (!a || !b) return false
+  return String(a.tool || '') === String(b.tool || '') &&
+    String(a.mode || '') === String(b.mode || '') &&
+    String(a.category || '') === String(b.category || '') &&
+    String(a.contains || '') === String(b.contains || '') &&
+    String(a.commandPattern || '') === String(b.commandPattern || '') &&
+    String(a.cwdPrefix || '') === String(b.cwdPrefix || '') &&
+    String(a.signature || '') === String(b.signature || '')
+}
+function hasRule(list, rule) {
+  return (list || []).some((r) => sameRule(r, rule))
+}
+
+function rememberApproved(sessionId, tool, mode, fp, category, justification, cmd) {
   if (!config.sessionMemory || category !== 'neutral' || !fp) return null
   let m = sessionMemory.get(sessionId)
   if (!m) { m = new Map(); sessionMemory.set(sessionId, m) }
@@ -890,16 +925,15 @@ function rememberApproved(sessionId, tool, mode, fp, category, justification) {
   memoryStore.cross[key] = prev
   saveJson(MEMORY_PATH, memoryStore)
   const sessions = Object.keys(prev.sessions).length
-  // 跨会话沉淀只接受路径指纹，避免把泛词（如 commit/review）变成全局白名单
-  const safeForRule = /[\/~]/.test(String(fp))
-  const denyHit = (config.denyRules || []).some((r) => matchRule([r], tool, mode, 'neutral', justification))
+  // 跨会话沉淀接受路径指纹或已识别的安全命令意图，避免把泛词（如 commit/review）变成全局白名单
+  const safeForRule = /[\/~]/.test(String(fp)) || Boolean(cmd && cmd.eligible)
+  const commandCtx = cmd && cmd.eligible ? { pattern: cmd.pattern, cwd: cmd.cwd } : null
+  const denyHit = (config.denyRules || []).some((r) => matchRule([r], tool, mode, 'neutral', justification, commandCtx))
   const intentOk = explicitIntent(justification)
   const requiredSessions = intentOk ? (config.promotionSessions || 2) : Math.max((config.promotionSessions || 2) + 1, 3)
   if (sessions >= requiredSessions && safeForRule && !denyHit) {
-    const exists = (config.allowRules || []).some((r) => r.tool === tool && (r.mode || '') === (mode || '') && String(r.contains || '') === fp)
-    if (!exists) {
-      const rule = { tool, contains: fp, description: '自动沉淀：跨会话人工确认' }
-      if (mode) rule.mode = mode
+    const rule = buildRule(tool, mode, 'neutral', fp, cmd, '自动沉淀：跨会话人工确认', 'learned')
+    if (!hasRule(config.allowRules, rule)) {
       config.allowRules.push(rule)
       saveJson(ALLOWLIST_PATH, config)
       audit(`PROMOTE ${key} 跨会话 ${sessions} 次人工确认，已沉淀白名单 ${JSON.stringify(rule)}`)
@@ -997,11 +1031,14 @@ function recordSignatureApproval(sessionId, toolName, mode, justification) {
   }
   return { graduated: false, count: prev.count, sessions }
 }
-function demoteLearned(tool, mode, fp, why, justification) {
+function demoteLearned(tool, mode, fp, why, justification, cmd) {
   let removed = 0
   if (fp) {
     const before = (config.allowRules || []).length
-    config.allowRules = (config.allowRules || []).filter((r) => !(r && r.tool === tool && (r.mode || '') === (mode || '') && String(r.contains || '') === fp))
+    config.allowRules = (config.allowRules || []).filter((r) => !(
+      r && r.tool === tool && (r.mode || '') === (mode || '') &&
+      (String(r.contains || '') === fp || (cmd && cmd.eligible && String(r.commandPattern || '') === cmd.pattern && isPathWithin(cmd.cwd, r.cwdPrefix || '')))
+    ))
     removed += before - config.allowRules.length
     const key = memoryKey(tool, mode, fp)
     if (memoryStore.cross[key]) { delete memoryStore.cross[key]; saveJson(MEMORY_PATH, memoryStore); removed += 1 }
@@ -1070,7 +1107,136 @@ function parseReason(reason) {
   return { mode: '', justification: String(reason || '') }
 }
 
-// 规则匹配：tool / mode / category / contains 均满足（缺省表示任意）
+// ---- 命令意图（P0）：从真实 bash 参数提取「程序 + 子命令」，按 cwd 限定 ----
+// 只对白名单里的只读/例行命令生成可学习意图；其余命令返回 null，继续走原有
+// Flash / 人工路径，避免把 npm publish、rm、curl 之类误当成 npm test。
+const SAFE_GIT_SUBS = new Set(['status', 'diff', 'log', 'show', 'branch', 'remote', 'rev-parse', 'ls-files', 'blame', 'grep', 'stash', 'tag', 'config', 'worktree'])
+const SAFE_GH_GROUPS = new Map([
+  ['pr', new Set(['view', 'list', 'checks', 'diff', 'status'])],
+  ['issue', new Set(['view', 'list', 'status'])],
+  ['repo', new Set(['view'])],
+  ['run', new Set(['view', 'list'])],
+])
+const SAFE_PM_SCRIPTS = new Set(['test', 'lint', 'typecheck', 'check', 'format:check', 'test:unit', 'test:integration'])
+
+function shellTokens(text) {
+  const out = []
+  let cur = ''
+  let quote = ''
+  let escaped = false
+  for (const ch of String(text || '')) {
+    if (escaped) { cur += ch; escaped = false; continue }
+    if (ch === '\\' && quote !== "'") { escaped = true; continue }
+    if (quote) {
+      if (ch === quote) quote = ''
+      else cur += ch
+      continue
+    }
+    if (ch === '"' || ch === "'") { quote = ch; continue }
+    if (/\s/.test(ch)) {
+      if (cur) { out.push(cur); cur = '' }
+      continue
+    }
+    cur += ch
+  }
+  if (escaped || quote) return null
+  if (cur) out.push(cur)
+  return out
+}
+
+function parseToolArgs(text) {
+  try {
+    const obj = JSON.parse(String(text || ''))
+    return obj && typeof obj === 'object' ? obj : null
+  } catch { return null }
+}
+
+function isPathWithin(cwd, prefix) {
+  const a = String(cwd || '').replace(/\/+$/, '') || '/'
+  const b = String(prefix || '').replace(/\/+$/, '') || '/'
+  if (!a || !b) return false
+  return a === b || a.startsWith(b === '/' ? '/' : b + '/')
+}
+
+/**
+ * 从真实 bash 参数提取可学习命令意图。
+ * 返回 { eligible, pattern, cwd, program }；不安全的命令返回 null。
+ * 只支持单条简单命令（或 `cd dir && cmd`）；管道、重定向、命令替换一律不学习。
+ */
+function commandIntent(toolName, argsText, sessionCwd) {
+  if (toolName !== 'bash') return null
+  const args = parseToolArgs(argsText)
+  if (!args || typeof args.command !== 'string') return null
+  let text = args.command.trim()
+  if (!text || text.length > 2000 || /[\r\n]/.test(text)) return null
+  let cwd = String(sessionCwd || '').trim()
+  // `cd dir && cmd` 允许；cd 后的目录作为本次命令的 cwd 作用域
+  const cd = text.match(/^cd\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))\s*&&\s*([\s\S]+)$/)
+  if (cd) {
+    const dir = cd[1] || cd[2] || cd[3]
+    if (!dir) return null
+    cwd = resolveAbsPath(dir, cwd)
+    text = cd[4].trim()
+  }
+  if (!cwd) return null
+  // 多命令 / 管道 / 重定向 / 命令替换：不自动学习（Flash 仍可判 SAFE，但不会沉淀）
+  if (/[;&|><`]/.test(text) || /\$\(/.test(text)) return null
+  const tokens = shellTokens(text)
+  if (!tokens || tokens.length === 0) return null
+  // 去掉前置环境变量赋值
+  while (tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) tokens.shift()
+  if (!tokens.length) return null
+  const program = String(tokens[0]).split('/').pop().toLowerCase()
+  if (!/^[a-z0-9_.+-]+$/.test(program)) return null
+  const rest = tokens.slice(1)
+  const flags = rest.filter((t) => t.startsWith('-'))
+  const hasFlag = (re) => flags.some((f) => re.test(f))
+  // 任何可能把输出写到文件的旗标都不学习
+  if (hasFlag(/^(?:-o|--output(?:=.*)?|--ext-diff|--textconv|--write)$/)) return null
+  const cwdScope = cwd.replace(/\/+$/, '') || '/'
+
+  if (program === 'git') {
+    const sub = String(rest[0] || '').toLowerCase()
+    if (!SAFE_GIT_SUBS.has(sub)) return null
+    if (['branch', 'tag'].includes(sub) && hasFlag(/^(?:-[dDmMf]|--delete|--move|--force|--edit)$/)) return null
+    // `git branch <name>` 会创建分支；只允许纯列表/查询参数（不接收任何位置参数）
+    if (sub === 'branch' && rest.length > 1 && rest.slice(1).some((t) => !t.startsWith('-'))) return null
+    if (sub === 'remote' && rest[1] && /^(?:add|remove|rm|set-url|rename|prune|update)$/i.test(rest[1])) return null
+    if (sub === 'config' && rest.length > 2 && !hasFlag(/^(?:--get|--get-all|--list|-l)$/)) return null
+    if (sub === 'stash' && !['list', 'show'].includes(String(rest[1] || '').toLowerCase())) return null
+    if (sub === 'worktree' && String(rest[1] || '').toLowerCase() !== 'list') return null
+    if (sub === 'tag' && rest.length > 1 && !hasFlag(/^(?:-l|--list)$/)) return null
+    return { eligible: true, pattern: `git ${sub}`, cwd: cwdScope, program: 'git' }
+  }
+
+  if (program === 'gh') {
+    const group = String(rest[0] || '').toLowerCase()
+    const sub = String(rest[1] || '').toLowerCase()
+    const allowed = SAFE_GH_GROUPS.get(group)
+    if (!allowed || !allowed.has(sub)) return null
+    if (group === 'pr' && sub === 'status') return null // 旧版 gh，避免不确定行为
+    return { eligible: true, pattern: `gh ${group} ${sub}`, cwd: cwdScope, program: 'gh' }
+  }
+
+  if (['npm', 'pnpm', 'yarn', 'bun'].includes(program)) {
+    const sub = String(rest[0] || '').toLowerCase()
+    if (sub === 'test') return { eligible: true, pattern: `${program} test`, cwd: cwdScope, program }
+    if (sub === 'run') {
+      const script = String(rest[1] || '').toLowerCase()
+      if (!SAFE_PM_SCRIPTS.has(script)) return null
+      return { eligible: true, pattern: `${program} run ${script}`, cwd: cwdScope, program }
+    }
+    // pnpm/yarn 允许直接写脚本名（pnpm lint）
+    if (['pnpm', 'yarn'].includes(program) && SAFE_PM_SCRIPTS.has(sub)) {
+      return { eligible: true, pattern: `${program} ${sub}`, cwd: cwdScope, program }
+    }
+    return null
+  }
+
+  return null
+}
+
+// 规则匹配：tool / mode / category / contains / commandPattern / cwdPrefix 均满足（缺省表示任意）
 // 操作签名：工具 + 模式 + 归一化路径模式（目录 + 扩展名），用于泛化「同类但指纹不同」的操作
 function signaturePaths(text) {
   const s = String(text || '')
@@ -1096,7 +1262,7 @@ function opSignature(toolName, mode, justification) {
   if (patterns.length === 0) return null
   return `${toolName}|${mode || 'none'}|${patterns.join(',')}`
 }
-function matchRule(rules, toolName, mode, category, justification) {
+function matchRule(rules, toolName, mode, category, justification, commandCtx) {
   const list = rules || []
   const j = String(justification || '').toLowerCase()
   for (const rule of list) {
@@ -1104,6 +1270,13 @@ function matchRule(rules, toolName, mode, category, justification) {
     if (rule.tool && rule.tool !== toolName) continue
     if (rule.mode && rule.mode !== mode) continue
     if (rule.category && rule.category !== category) continue
+    // 命令规则必须命中本次真实命令意图；没有上下文（旧调用/非 bash）不匹配，避免放宽
+    if (rule.commandPattern) {
+      if (!commandCtx || rule.commandPattern !== commandCtx.pattern) continue
+    }
+    if (rule.cwdPrefix) {
+      if (!commandCtx || !isPathWithin(commandCtx.cwd, rule.cwdPrefix)) continue
+    }
     if (rule.signature && rule.signature !== opSignature(toolName, mode, justification)) continue
     if (rule.contains && !j.includes(String(rule.contains).toLowerCase())) continue
     return rule
@@ -1130,6 +1303,7 @@ function ruleReasons(rule) {
   const c = String(rule.contains || '')
   const hasPath = /[\/~]/.test(c)
   if (rule.source === 'default' || String(rule.description || '').indexOf('工作区写入') >= 0) return reasons
+  if (rule.commandPattern) return reasons
   if (!rule.tool && !c && !rule.category && !rule.signature) reasons.push('未限定 tool/contains，等于放行整个模式')
   if (c && !hasPath && c.length <= 12) {
     if (GENERIC_CONTAINS.has(c.toLowerCase())) reasons.push('contains 是通用词「' + c + '」，会匹配到未确认的操作')
@@ -1170,7 +1344,7 @@ function ruleSourceOf(rule) {
   return 'default'
 }
 function ruleStableId(rule, kind) {
-  const fields = [rule && rule.tool, rule && rule.mode, rule && rule.category, rule && rule.contains, rule && rule.signature]
+  const fields = [rule && rule.tool, rule && rule.mode, rule && rule.category, rule && rule.contains, rule && rule.signature, rule && rule.commandPattern, rule && rule.cwdPrefix]
   return String(kind || 'allowRules') + ':' + fields.map((v) => encodeURIComponent(String(v || ''))).join('|')
 }
 function decorateRule(rule, kind) {
@@ -1183,17 +1357,23 @@ function decorateRule(rule, kind) {
 }
 function validateRuleEdit(rule, kind, previous) {
   if (!rule || typeof rule !== 'object') return '规则必须是对象'
-  for (const field of ['tool', 'mode', 'category', 'contains', 'description']) {
+  for (const field of ['tool', 'mode', 'category', 'contains', 'description', 'commandPattern', 'cwdPrefix']) {
     if (rule[field] !== undefined && typeof rule[field] !== 'string') return field + ' 必须是字符串'
   }
-  const hasAny = rule.tool || rule.mode || rule.category || rule.contains || rule.signature
-  if (!hasAny) return '规则至少需要 tool/mode/category/contains 之一'
+  const hasAny = rule.tool || rule.mode || rule.category || rule.contains || rule.signature || rule.commandPattern
+  if (!hasAny) return '规则至少需要 tool/mode/category/contains/commandPattern 之一'
   if (rule.tool && !/^[A-Za-z0-9_.-]{1,80}$/.test(rule.tool)) return 'tool 名称不合法'
   if (rule.mode && rule.mode !== 'workspace-write' && rule.mode !== 'danger-full-access') return 'mode 只能是 workspace-write 或 danger-full-access'
   if (rule.category && rule.category !== 'neutral' && !DEFAULT_HARD_CATEGORIES.includes(rule.category)) return 'category 不合法'
   if (rule.contains && String(rule.contains).length > 200) return 'contains 太长（最多 200 字符）'
-  if (kind === 'allowRules' && rule.mode === 'danger-full-access' && !rule.tool && !rule.contains && !rule.signature) {
-    return 'danger-full-access 规则必须限定 tool/contains/signature，不能无条件放行'
+  if (rule.commandPattern) {
+    if (rule.tool !== 'bash') return 'commandPattern 只能用于 bash 规则'
+    if (!/^[a-z0-9_.+-]+(?: [a-z0-9_.+-]+){0,3}$/.test(rule.commandPattern)) return 'commandPattern 格式不合法'
+    if (!rule.cwdPrefix) return 'commandPattern 规则必须带 cwdPrefix 限定目录'
+    if (!/^[\/~]/.test(rule.cwdPrefix) || String(rule.cwdPrefix).length > 500) return 'cwdPrefix 必须是以 / 或 ~ 开头的绝对路径'
+  }
+  if (kind === 'allowRules' && rule.mode === 'danger-full-access' && !rule.tool && !rule.contains && !rule.signature && !rule.commandPattern) {
+    return 'danger-full-access 规则必须限定 tool/contains/signature/commandPattern，不能无条件放行'
   }
   if (previous && previous.signature && rule.signature !== previous.signature) return '签名规则不能在行内修改签名'
   return null
@@ -1205,9 +1385,12 @@ function touchRuleHit(rule) {
     saveJson(ALLOWLIST_PATH, config)
   } catch { /* 统计失败不影响放行 */ }
 }
-// 计数/学习 key：tool|mode|category（category 为 flash 判定的类别，neutral 走计数）
-function learnKey(toolName, mode, category) {
-  return `${toolName}|${mode || 'none'}|${category || 'none'}`
+// 计数/学习 key：tool|mode|category；可识别的 bash 命令再追加真实命令意图 + cwd。
+// 这样 `npm test` 与 `npm publish` 不会共享同一个计数（后者也不会进入可学习白名单）。
+function learnKey(toolName, mode, category, cmd) {
+  const base = `${toolName}|${mode || 'none'}|${category || 'none'}`
+  if (cmd && cmd.eligible && cmd.pattern) return `${base}|cmd=${cmd.pattern}|cwd=${cmd.cwd}`
+  return base
 }
 
 // 从 justification 提取「操作指纹」：路径 / 文件名 / 项目名等有区分度的片段。
@@ -1975,14 +2158,20 @@ export default {
       return result
     }
 
-    /** 记录一次人工批准的样本（{fp, ctx}）；同指纹覆盖旧样本；返回本次指纹（可能为 null） */
-    const recordSample = (key, justification) => {
-      const fp = extractOperationFingerprint(justification)
-      const ctx = String(justification || '').slice(0, 200)
+    /** 记录一次人工批准的样本（{fp, ctx}）；命令意图存在时用它作为指纹；同指纹覆盖旧样本 */
+    const recordSample = (key, justification, cmd) => {
+      const fp = cmd && cmd.eligible ? cmd.pattern : extractOperationFingerprint(justification)
+      const prefix = cmd && cmd.eligible ? `命令：${cmd.pattern}（目录：${cmd.cwd}）；` : ''
+      const ctx = String(prefix + String(justification || '')).slice(0, 200)
       const list = (learning.history[key] || []).slice()
       const idx = fp ? list.findIndex((s) => s.fp === fp) : -1
-      if (idx >= 0) list[idx] = { fp, ctx }
-      else list.push({ fp, ctx })
+      const item = { fp, ctx }
+      if (cmd && cmd.eligible) {
+        item.commandPattern = cmd.pattern
+        item.cwd = cmd.cwd
+      }
+      if (idx >= 0) list[idx] = item
+      else list.push(item)
       learning.history[key] = list.slice(-10)
       return fp
     }
@@ -2011,18 +2200,21 @@ export default {
         if (judgeArgs) audit(`INPUT   ${toolName} callArgs=${judgeArgs.length}B`)
         // 会话工作目录：相对路径快照解析的基准（DSH SessionHeader.cwd）
         const sessionCwd = (typeof session.cwd === 'string' && session.cwd) ? session.cwd : ''
+        // 只从真实 tool 入参提炼可复用的安全命令意图；不可识别/不安全的命令一律 null。
+        const commandCtx = commandIntent(toolName, callInfo && callInfo.arguments ? callInfo.arguments : '', sessionCwd)
+        const commandPattern = commandCtx ? commandCtx.pattern : ''
         // Shadow 模式：命中“本可自动放行”时只记录候选，仍转人工；不写规则/学习/快照
         const shadowMode = config.shadow === true
 
         // 转人工统一处理：记录 pending → 交下游（web answerer）→ 记录终态事件（关闭提示条）
         const forwardToHuman = async (sid, tName, tMode, rsn, jst, cat, why) => {
-          recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-pending', { kind: 'manual-pending', category: cat || '', path: why, args: judgeArgs, cwd: sessionCwd })
+          recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-pending', { kind: 'manual-pending', category: cat || '', path: why, args: judgeArgs, cwd: sessionCwd, commandPattern })
           const out = await next()
           recordOutcome(sid, tName, tMode, rsn, jst, cat, out, sessionCwd)
           if (out === 'allowed-once') {
-            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-approved', { kind: 'manual-approved', category: cat || '', path: why, args: judgeArgs, cwd: sessionCwd })
+            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-approved', { kind: 'manual-approved', category: cat || '', path: why, args: judgeArgs, cwd: sessionCwd, commandPattern })
           } else if (out === 'rejected') {
-            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-rejected', { kind: 'manual-rejected', category: cat || '', path: why, args: judgeArgs, cwd: sessionCwd })
+            recordApprovalEvent(sid, tName, tMode, rsn, jst, 'manual-rejected', { kind: 'manual-rejected', category: cat || '', path: why, args: judgeArgs, cwd: sessionCwd, commandPattern })
           }
           return out
         }
@@ -2032,7 +2224,7 @@ export default {
         const shadowForward = async (sid, tName, tMode, rsn, jst, cat, path) => {
           recordApprovalEvent(sid, tName, tMode, rsn, jst, 'shadow-candidate', {
             kind: 'shadow-candidate', category: cat || '', path, wouldPath: path,
-            args: judgeArgs, cwd: sessionCwd
+            args: judgeArgs, cwd: sessionCwd, commandPattern
           })
           audit(`SHADOW  ${tName} mode=${tMode || 'none'} would=${path} → 人工`)
           return forwardToHuman(sid, tName, tMode, rsn, jst, cat, 'shadow-mode')
@@ -2049,27 +2241,27 @@ export default {
         if (trustedRoot) {
           if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'trust')
           audit(`TRUST   ${toolName} mode=${mode || 'none'} root=${trustedRoot}`)
-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'trust', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'trust', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, commandPattern })
           return 'allowed-once'
         }
 
         // 2b. 会话内记忆：本会话人工确认过的同指纹操作 → 直接放行（零点击，会话级）
-        const earlyFp = extractOperationFingerprint(justification)
+        const earlyFp = commandPattern || extractOperationFingerprint(justification)
         const memEntry = sessionMemoryHit(sessionId, toolName, mode, earlyFp)
         if (memEntry) {
           if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'session-memory')
           audit(`SESSIONMEM ${toolName} mode=${mode || 'none'} fp=${earlyFp}`)
-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'session-memory', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'session-memory', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, commandPattern })
           return 'allowed-once'
         }
 
         // 2. 白名单层：命中规则 → 直接放行（确定性，不过 flash）
-        const matchedRule = matchRule(config.allowRules, toolName, mode, null, justification)
+        const matchedRule = matchRule(config.allowRules, toolName, mode, null, justification, commandCtx)
         if (matchedRule) {
           if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'rule')
           touchRuleHit(matchedRule)
-          audit(`ALLOW   ${toolName} mode=${mode || 'none'} (rule: ${matchedRule.description || 'matched'}${matchedRule.contains ? ',contains=' + matchedRule.contains : ''},hit=${matchedRule.hitCount || 0})`)
-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'rule', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
+          audit(`ALLOW   ${toolName} mode=${mode || 'none'} (rule: ${matchedRule.description || 'matched'}${matchedRule.contains ? ',contains=' + matchedRule.contains : ''}${matchedRule.commandPattern ? ',command=' + matchedRule.commandPattern : ''},hit=${matchedRule.hitCount || 0})`)
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'rule', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, commandPattern })
           return 'allowed-once'
         }
 
@@ -2079,7 +2271,7 @@ export default {
         if (verdict === 'safe') {
           if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, '', 'flash-safe')
           audit(`ALLOW   ${toolName} mode=${mode || 'none'} (flash-safe${timedOut ? '，重试后' : ''}${stage === 'fast' ? ',fast' : ''})`)
-          const ev = recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-safe', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
+          const ev = recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-safe', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, commandPattern })
           recordSelfObservation(sessionId, toolName, mode, justification, ev && ev.id)
           return 'allowed-once'
         }
@@ -2106,21 +2298,28 @@ export default {
         }
 
         // 4d. denyRules 命中（此前用户裁决拒绝过的 key）→ 直接转人工（拒绝优先于沉淀）
-        if (matchRule(config.denyRules, toolName, mode, cat, justification)) {
+        if (matchRule(config.denyRules, toolName, mode, cat, justification, commandCtx)) {
           audit(`DENYRULE ${toolName} mode=${mode || 'none'} category=${cat} → 人工 | ${reason.slice(0, 120)}`)
           return forwardToHuman(sessionId, toolName, mode, reason, justification, cat, 'deny-rule')
         }
 
+        // 4d-2. bash 有真实入参但无法识别为安全命令意图 → 不进入计数/学习。
+        // 否则 `npm publish` 会以泛词 fingerprint 被学成自动放行；这里只影响“学习”，不影响用户显式规则。
+        if (toolName === 'bash' && callInfo && !commandCtx) {
+          audit(`UNVERIFIED-BASH ${mode || 'none'} → 人工（命令意图不可复用）| ${reason.slice(0, 120)}`)
+          return forwardToHuman(sessionId, toolName, mode, reason, justification, cat, 'command-unverified')
+        }
+
         // 4e. 沉淀规则（带 category 的学习规则，用户批准过）→ 直接放行，不再计数
-        const key = learnKey(toolName, mode, cat)
-        const learnedRule = matchRule(config.allowRules, toolName, mode, cat, justification)
+        const key = learnKey(toolName, mode, cat, commandCtx)
+        const learnedRule = matchRule(config.allowRules, toolName, mode, cat, justification, commandCtx)
         if (learnedRule) {
           if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'learned')
           touchRuleHit(learnedRule)
           audit(`ALLOW   ${toolName} mode=${mode || 'none'} (rule: ${learnedRule.description || '沉淀规则'}${learnedRule.contains ? ',contains=' + learnedRule.contains : ''},hit=${learnedRule.hitCount || 0})`)
           delete learning.stats[key]
           saveJson(LEARNING_PATH, learning)
-          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'learned', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
+          recordAutoAllow(sessionId, toolName, mode, reason, justification, 'learned', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, commandPattern })
           return 'allowed-once'
         }
 
@@ -2138,7 +2337,7 @@ export default {
             if (sim.verdict === 'same') {
               if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'semantic')
               audit(`SEMANTIC ${toolName} mode=${mode || 'none'} category=${cat} 一次批准后语义判同类 → 放行 | ${reason.slice(0, 100)}`)
-              recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-same', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, path: 'semantic' })
+              recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-same', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, path: 'semantic', commandPattern })
               return 'allowed-once'
             }
             audit(`SIMDIFF ${toolName} mode=${mode || 'none'} category=${cat} 语义复用判不同类 → 人工 | ${reason.slice(0, 120)}`)
@@ -2146,21 +2345,16 @@ export default {
         }
 
         if (confirmed >= threshold) {
-          const fingerprint = extractOperationFingerprint(justification)
+          const fingerprint = commandPattern || extractOperationFingerprint(justification)
           const samples = learning.history[key] || []
-          const fpHit = Boolean(fingerprint) && samples.some((s) => s.fp === fingerprint)
+          const fpHit = Boolean(fingerprint) && samples.some((s) => (s.commandPattern || s.fp) === fingerprint)
 
           if (fpHit) {
             if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'fpHit')
             // ① 指纹确定性命中（用户确认过该操作）→ 自动放行 + 沉淀规则
             if (learning.enabled) {
-              const rule = { tool: toolName, category: cat, contains: fingerprint }
-              if (mode) rule.mode = mode
-              if (!config.allowRules.some((r) => r.tool === rule.tool && r.mode === rule.mode && r.category === rule.category && r.contains === rule.contains)) {
-                rule.description = `自动沉淀：${cat === 'neutral' ? '中立' : CATEGORY_LABELS[cat] || cat} 人工确认后自动放行`
-                rule.source = 'learned'
-                rule.createdAt = Date.now()
-                rule.hitCount = 0
+              const rule = buildRule(toolName, mode, cat, fingerprint, commandCtx, `自动沉淀：${cat === 'neutral' ? '中立' : CATEGORY_LABELS[cat] || cat} 人工确认后自动放行`, 'learned')
+              if (!hasRule(config.allowRules, rule)) {
                 config.allowRules.push(rule)
                 saveJson(ALLOWLIST_PATH, config)
                 audit(`LEARN   ${key} 已沉淀白名单 ${JSON.stringify(rule)}`)
@@ -2170,7 +2364,7 @@ export default {
             delete learning.stats[key]
             delete learning.history[key]
             saveJson(LEARNING_PATH, learning)
-            recordAutoAllow(sessionId, toolName, mode, reason, justification, 'fpHit', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
+            recordAutoAllow(sessionId, toolName, mode, reason, justification, 'fpHit', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, commandPattern })
             return 'allowed-once'
           }
 
@@ -2182,13 +2376,8 @@ export default {
               if (shadowMode) return shadowForward(sessionId, toolName, mode, reason, justification, cat, 'flash-same')
               // 判同类 → 自动放行；有指纹则沉淀规则（无指纹不沉淀，保留样本供后续验证）
               if (learning.enabled && fingerprint) {
-                const rule = { tool: toolName, category: cat, contains: fingerprint }
-                if (mode) rule.mode = mode
-                if (!config.allowRules.some((r) => r.tool === rule.tool && r.mode === rule.mode && r.category === rule.category && r.contains === rule.contains)) {
-                  rule.description = `自动沉淀：${cat === 'neutral' ? '中立' : CATEGORY_LABELS[cat] || cat} flash 同类验证`
-                  rule.source = 'learned'
-                  rule.createdAt = Date.now()
-                  rule.hitCount = 0
+                const rule = buildRule(toolName, mode, cat, fingerprint, commandCtx, `自动沉淀：${cat === 'neutral' ? '中立' : CATEGORY_LABELS[cat] || cat} flash 同类验证`, 'learned')
+                if (!hasRule(config.allowRules, rule)) {
                   config.allowRules.push(rule)
                   saveJson(ALLOWLIST_PATH, config)
                   audit(`LEARN   ${key} flash 判同类，已沉淀白名单 ${JSON.stringify(rule)}`)
@@ -2201,7 +2390,7 @@ export default {
                 audit(`SAME    ${toolName} mode=${mode || 'none'} category=${cat} flash 判同类（无指纹，未沉淀）| ${reason.slice(0, 100)}`)
               }
               audit(`ALLOW   ${toolName} mode=${mode || 'none'} (flash-same) | ${reason.slice(0, 100)}`)
-              recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-same', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd })
+              recordAutoAllow(sessionId, toolName, mode, reason, justification, 'flash-same', { baseDir: sessionCwd, args: judgeArgs, cwd: sessionCwd, commandPattern })
               return 'allowed-once'
             }
             // 判 DIFFERENT / 验证失败 → 落人工确认
@@ -2210,21 +2399,19 @@ export default {
 
           // 指纹未命中（且无样本可验证 / 判不同类）：转人工确认
           audit(`RISKY   ${toolName} mode=${mode || 'none'} category=${cat} confirm=${confirmed + 1}/${threshold}（操作未确认过）→ 人工 outcome=? | ${reason.slice(0, 120)}`)
-          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd })
+          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd, commandPattern })
           const outcome = await next()
           recordOutcome(sessionId, toolName, mode, reason, justification, cat, outcome, sessionCwd)
           audit(`OUTCOME ${key} outcome=${outcome} | ${reason.slice(0, 80)}`)
           if (outcome === 'allowed-once' && learning.enabled) {
             // 批准 → 记录本次操作样本（背景+指纹）；计数保持阈值位
-            recordSample(key, justification)
+            recordSample(key, justification, commandCtx)
             saveJson(LEARNING_PATH, learning)
-            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd })
+            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd, commandPattern })
           } else if (outcome === 'rejected') {
             // 拒绝 → 永久人工（带指纹；提取不到则拦全部同类，拒绝从严）
-            const rule = { tool: toolName, category: cat }
-            if (mode) rule.mode = mode
-            if (fingerprint) rule.contains = fingerprint
-            if (!config.denyRules.some((r) => r.tool === rule.tool && r.mode === rule.mode && r.category === rule.category && r.contains === rule.contains)) {
+            const rule = buildRule(toolName, mode, cat, fingerprint, commandCtx, '', 'user')
+            if (!hasRule(config.denyRules, rule)) {
               config.denyRules.push(rule)
               saveJson(ALLOWLIST_PATH, config)
               audit(`LEARN   ${key} 被人工拒绝，已升级永久人工 ${JSON.stringify(rule)}`)
@@ -2232,22 +2419,22 @@ export default {
             delete learning.stats[key]
             delete learning.history[key]
             saveJson(LEARNING_PATH, learning)
-            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs, cwd: sessionCwd })
+            recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs, cwd: sessionCwd, commandPattern })
           }
           const fpMemoryA = fingerprint || extractOperationFingerprint(justification)
           if (outcome === 'allowed-once') {
-            const promoA = rememberApproved(sessionId, toolName, mode, fpMemoryA, cat, justification)
+            const promoA = rememberApproved(sessionId, toolName, mode, fpMemoryA, cat, justification, commandCtx)
             if (promoA && promoA.promoted) audit(`PROMOTE ${memoryKey(toolName, mode, fpMemoryA)} 跨会话 ${promoA.sessions} 次确认`)
             recordSignatureApproval(sessionId, toolName, mode, justification)
           } else if (outcome === 'rejected') {
-            demoteLearned(toolName, mode, fpMemoryA, 'reject', justification)
+            demoteLearned(toolName, mode, fpMemoryA, 'reject', justification, commandCtx)
           }
           return outcome
         }
 
         // 前 N 次 → 人工确认
         audit(`RISKY   ${toolName} mode=${mode || 'none'} category=${cat} confirm=${confirmed + 1}/${threshold} → 人工 outcome=? | ${reason.slice(0, 120)}`)
-        recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd })
+        recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-pending', { kind: 'manual-pending', category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd, commandPattern })
         const outcome = await next()
         recordOutcome(sessionId, toolName, mode, reason, justification, cat, outcome, sessionCwd)
         audit(`OUTCOME ${key} outcome=${outcome} | ${reason.slice(0, 80)}`)
@@ -2255,16 +2442,14 @@ export default {
         if (outcome === 'allowed-once' && learning.enabled) {
           // 批准 → 确认计数 +1，并记录本次操作样本（未达阈值，下次同类仍人工确认）
           learning.stats[key] = confirmed + 1
-          recordSample(key, justification)
+          recordSample(key, justification, commandCtx)
           saveJson(LEARNING_PATH, learning)
-          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed + 1, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd })
+          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-approved', { kind: 'manual-approved', learningCount: confirmed + 1, threshold, category: cat, path: 'neutral-confirm', args: judgeArgs, cwd: sessionCwd, commandPattern })
         } else if (outcome === 'rejected') {
           // 拒绝 → 升级为永久人工规则（带操作指纹；提取不到则拦全部同类，拒绝从严）
-          const fingerprint = extractOperationFingerprint(justification)
-          const rule = { tool: toolName, category: cat }
-          if (mode) rule.mode = mode
-          if (fingerprint) rule.contains = fingerprint
-          if (!config.denyRules.some((r) => r.tool === rule.tool && r.mode === rule.mode && r.category === rule.category && r.contains === rule.contains)) {
+          const fingerprintB = commandPattern || extractOperationFingerprint(justification)
+          const rule = buildRule(toolName, mode, cat, fingerprintB, commandCtx, '', 'user')
+          if (!hasRule(config.denyRules, rule)) {
             config.denyRules.push(rule)
             saveJson(ALLOWLIST_PATH, config)
             audit(`LEARN   ${key} 被人工拒绝，已升级永久人工 ${JSON.stringify(rule)}`)
@@ -2272,15 +2457,15 @@ export default {
           delete learning.stats[key]
           delete learning.history[key]
           saveJson(LEARNING_PATH, learning)
-          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs, cwd: sessionCwd })
+          recordApprovalEvent(sessionId, toolName, mode, reason, justification, 'manual-rejected', { kind: 'manual-rejected', category: cat, path: 'neutral-reject', args: judgeArgs, cwd: sessionCwd, commandPattern })
         }
-        const fpMemoryB = extractOperationFingerprint(justification)
+        const fpMemoryB = commandPattern || extractOperationFingerprint(justification)
         if (outcome === 'allowed-once') {
-          const promoB = rememberApproved(sessionId, toolName, mode, fpMemoryB, cat, justification)
+          const promoB = rememberApproved(sessionId, toolName, mode, fpMemoryB, cat, justification, commandCtx)
           if (promoB && promoB.promoted) audit(`PROMOTE ${memoryKey(toolName, mode, fpMemoryB)} 跨会话 ${promoB.sessions} 次确认`)
           recordSignatureApproval(sessionId, toolName, mode, justification)
         } else if (outcome === 'rejected') {
-          demoteLearned(toolName, mode, fpMemoryB, 'reject', justification)
+          demoteLearned(toolName, mode, fpMemoryB, 'reject', justification, commandCtx)
         }
         // cancelled/unavailable：不计数（用户未表态，下次仍人工确认）
         return outcome

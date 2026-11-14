@@ -211,6 +211,66 @@ const semanticShadowCandidate = semanticShadowEvents.filter((ev) => ev.kind === 
 assert.ok(semanticShadowCandidate, 'semantic shadow candidate recorded')
 assert.equal(semanticShadowCandidate.cwd, cwd)
 
+// 命令意图学习：npm test 与 npm publish 共享 tool/mode/category，但真实参数不同。
+// 只有安全命令（npm test）进入命令 key；npm publish 不应复用它的学习结果。
+const sessionEvent = handlers.get('session/event')
+assert.equal(typeof sessionEvent, 'function', 'session/event handler registered')
+const bashRequest = (sid, callId, command) => ({
+  agent: { session: { id: sid, cwd } },
+  toolName: 'bash',
+  reason: 'escalate sandbox to workspace-write: ' + command,
+  callId,
+})
+const feedToolCall = (sid, callId, command) => sessionEvent(
+  { id: sid },
+  { type: 'tool/call', data: { callId, name: 'bash', arguments: JSON.stringify({ command }) } }
+)
+
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  riskyThreshold: 1,
+  semanticReuse: false,
+  shadow: false,
+  sessionMemory: false,
+  allowRules: []
+}), 'utf8')
+flashReply = 'RISKY:neutral'
+nextCalls = 0
+feedToolCall('command-test', 'call-test-1', 'npm test')
+const testFirst = await approval(bashRequest('command-test', 'call-test-1', 'npm test'), nextAllowed)
+assert.equal(testFirst, 'allowed-once')
+assert.equal(nextCalls, 1, 'first safe command asks once')
+const commandLearning = JSON.parse(readFileSync(learningPath, 'utf8'))
+const commandKey = 'bash|workspace-write|neutral|cmd=npm test|cwd=' + cwd
+assert.equal(commandLearning.stats[commandKey], 1, 'safe command gets its own learning key')
+
+nextCalls = 0
+feedToolCall('command-test', 'call-test-2', 'npm publish')
+const publishOut = await approval(bashRequest('command-test', 'call-test-2', 'npm publish'), nextAllowed)
+assert.equal(publishOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'npm publish does not reuse npm test approval')
+assert.equal(JSON.parse(readFileSync(learningPath, 'utf8')).stats['bash|workspace-write|neutral'], undefined, 'unverified bash is not counted')
+assert.ok(readEvents().filter((ev) => ev.path === 'command-unverified').length >= 1, 'unverified bash uses its own path')
+
+nextCalls = 0
+feedToolCall('command-test', 'call-test-2b', 'npm publish')
+const publishAgain = await approval(bashRequest('command-test', 'call-test-2b', 'npm publish'), nextAllowed)
+assert.equal(publishAgain, 'allowed-once')
+assert.equal(nextCalls, 1, 'unverified bash still asks every time')
+assert.equal(readEvents().filter((ev) => ev.kind === 'auto' && ev.justification === 'npm publish').length, 0, 'unverified bash never auto-allows')
+
+nextCalls = 0
+feedToolCall('command-test', 'call-test-3', 'npm test')
+const testSecond = await approval(bashRequest('command-test', 'call-test-3', 'npm test'), nextAllowed)
+assert.equal(testSecond, 'allowed-once')
+assert.equal(nextCalls, 0, 'same safe command auto-allows after confirmation')
+const commandEvents = readEvents()
+const commandAuto = commandEvents.filter((ev) => ev.kind === 'auto' && ev.commandPattern === 'npm test').pop()
+assert.ok(commandAuto, 'auto event records commandPattern')
+const commandRule = JSON.parse(readFileSync(allowlistPath, 'utf8')).allowRules.find((rule) => rule.commandPattern === 'npm test')
+assert.ok(commandRule, 'learned rule stores commandPattern')
+assert.equal(commandRule.cwdPrefix, cwd, 'learned rule scopes command to cwd')
+
 // 行内编辑需要一个已有规则作为编辑对象。
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,

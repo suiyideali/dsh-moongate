@@ -79,3 +79,18 @@
 - 一次批准后，相似操作 Flash `SAME` 自动放行，`next()` 不被调用；`DIFFERENT` 仍转人工。
 - 不新增 allowRules，不改变 `learning.stats`/样本；Shadow 下只写候选。
 - `npm test` 覆盖 SAME/DIFFERENT/无样本/Shadow 路径。
+
+## 6. 命令意图学习（P0）
+
+- 学习 key 从 `tool|mode|category` 扩展为可识别的安全 bash 命令：`tool|mode|category|cmd=<pattern>|cwd=<cwd>`。
+- 只从真实 `tool/call` 参数解析；支持 `git status/diff/log/...`、`gh pr/issue/... view/list`、`npm/pnpm/yarn/bun test` 与已列出的安全脚本。
+- 拒绝管道/重定向/命令替换、危险 git 分支/标签操作、写文件输出参数、非白名单 git/gh 子命令；`cd dir && cmd` 使用解析后的有效 cwd。
+- 命令规则同时写 `commandPattern` + `cwdPrefix`，匹配时必须命令和目录都一致；旧规则保持兼容。
+- 有真实 bash 入参但无法识别为安全意图时，不进入中性计数/学习，固定转人工（`path:"command-unverified"`）；显式用户规则仍可放行。
+- 事件记录 `commandPattern`，规则库展示 `cmd=`/`cwd=`，便于审计。
+
+**验收**
+
+- `npm test` 首次人工、同命令同目录再次自动放行，并沉淀带 `commandPattern`/`cwdPrefix` 的规则。
+- `npm publish` 不复用 `npm test` 的学习结果，重复出现也始终人工。
+- 旧规则/非 bash 工具行为不变；Shadow 仍只记录候选、不写规则/学习/快照。
