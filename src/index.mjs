@@ -49,6 +49,35 @@ const PROFILE_PATCH_PATH = join(DSH_HOME, 'profiles', 'web', 'cordis.patch.yml')
 const SNAPSHOT_MAX_BYTES = 256 * 1024
 const SNAPSHOT_MAX_FILES = 5
 
+/** 按 cwd 聚合审批事件（只统计已落地的结果；历史无 cwd 的事件归入“未知目录”） */
+function aggregateProjectStats(events) {
+  const buckets = new Map()
+  for (const ev of Array.isArray(events) ? events : []) {
+    if (!ev || !Number.isInteger(ev.id)) continue
+    const kind = String(ev.kind || '')
+    if (kind === 'manual-pending') continue
+    const cwd = typeof ev.cwd === 'string' ? ev.cwd.trim() : ''
+    const key = cwd || '\u0000unknown'
+    let b = buckets.get(key)
+    if (!b) {
+      b = { path: cwd, name: cwd ? cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd : '未知目录', total: 0, auto: 0, approved: 0, rejected: 0, escalate: 0, shadow: 0, lastTs: 0 }
+      buckets.set(key, b)
+    }
+    b.total += 1
+    if (kind === 'auto' || (!kind && ev.verdict && ev.verdict !== 'manual-pending')) b.auto += 1
+    else if (kind === 'manual-approved') b.approved += 1
+    else if (kind === 'manual-rejected') b.rejected += 1
+    else if (kind === 'escalate') b.escalate += 1
+    else if (kind === 'shadow-candidate') b.shadow += 1
+    const ts = Number(ev.ts) || 0
+    if (ts > b.lastTs) b.lastTs = ts
+  }
+  const projects = Array.from(buckets.values())
+    .map((b) => Object.assign({}, b, { autoRate: b.total ? Math.round((b.auto / b.total) * 100) : 0 }))
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+  return { projects: projects.slice(0, 24), total: projects.reduce((n, p) => n + p.total, 0), projectCount: projects.length }
+}
+
 /** 判定文本文件（跳过二进制/图片等） */
 const SNAPSHOT_BINARY_RE = /[\x00-\x08\x0e-\x1f]/
 function isSnapshotText(buf) {
@@ -1317,6 +1346,34 @@ export default {
       console.error(`[${NAME}] 注册事件 API 失败`, error)
     }
 
+    // ---- 按项目/目录聚合（全部会话；只读 events.jsonl，不改数据） ----
+    let offProjectStatsRoute = null
+    try {
+      if (ctx.webServer && typeof ctx.webServer.register === 'function') {
+        offProjectStatsRoute = ctx.webServer.register({
+          kind: 'exact',
+          path: '/api/auto-approve/project-stats',
+          handler: async (req, res) => {
+            if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return }
+            const events = []
+            try {
+              const text = readFileSync(EVENTS_PATH, 'utf8')
+              for (const line of text.split('\n')) {
+                if (!line.trim()) continue
+                try { events.push(JSON.parse(line)) } catch { /* 跳过坏行 */ }
+              }
+            } catch { /* 文件不存在：返回空 */ }
+            const stats = aggregateProjectStats(events)
+            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-cache' })
+            res.end(JSON.stringify(Object.assign({ ok: true }, stats)))
+          },
+        })
+        console.log(`[${NAME}] 项目统计 API 已注册：/api/auto-approve/project-stats`)
+      }
+    } catch (error) {
+      console.error(`[${NAME}] 注册项目统计 API 失败`, error)
+    }
+
     // ---- 规则管理 API（设置页：查看/修改放行与阻塞规则 + 一键初始化） ----
     let offRulesRoute = null
     let offSetupRoute = null
@@ -1674,6 +1731,7 @@ export default {
     }
     ctx.effect(() => () => {
       if (offEventsRoute) { try { offEventsRoute() } catch (e) {} }
+      if (offProjectStatsRoute) { try { offProjectStatsRoute() } catch (e) {} }
       if (offRulesRoute) { try { offRulesRoute() } catch (e) {} }
       if (offSetupRoute) { try { offSetupRoute() } catch (e) {} }
       if (offRememberRoute) { try { offRememberRoute() } catch (e) {} }

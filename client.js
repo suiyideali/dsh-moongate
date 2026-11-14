@@ -73,6 +73,15 @@ window.__ModuleLoader__.load({
 .ag-top-name{color:var(--dsw-alias-label-secondary);font-family:var(--ds-font-family-code);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ag-top-bar{height:6px;border-radius:3px;background:var(--dsw-alias-state-success-primary);opacity:.75;min-width:4px}
 .ag-top-count{color:var(--dsw-alias-label-tertiary);text-align:right;font-variant-numeric:tabular-nums}
+.ag-project-panel{margin-top:2px}
+.ag-project-list{display:flex;flex-direction:column;gap:5px}
+.ag-project-row{display:grid;grid-template-columns:120px minmax(0,1fr) 96px 170px;align-items:center;gap:8px;min-width:0;font-size:11px;line-height:16px}
+.ag-project-name{color:var(--dsw-alias-label-primary);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-project-path{color:var(--dsw-alias-label-tertiary);font-family:var(--ds-font-family-code);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-project-bar{height:6px;border-radius:3px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
+.ag-project-fill{display:block;height:100%;border-radius:3px;background:var(--dsw-alias-state-success-primary);opacity:.8}
+.ag-project-meta{color:var(--dsw-alias-label-tertiary);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ag-project-foot{margin-top:2px;color:var(--dsw-alias-label-caption);font-size:10px;line-height:15px}
 .ag-file-chip{box-sizing:border-box;max-width:260px;height:20px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:5px;align-items:center;padding:0 7px;font:11px/18px var(--ds-font-family-code);display:inline-flex;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
 .ag-empty{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
 .ag-loading{flex:1 1 auto;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:20px;padding:24px}
@@ -570,6 +579,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState(null)
       const [snapStats, setSnapStats] = React.useState(null) // {count, bytes} | null（当前会话）
       const [globalSnapStats, setGlobalSnapStats] = React.useState(null) // {count, bytes} | null（全部会话）
+      const [projectStats, setProjectStats] = React.useState(null) // {projects,total,projectCount} | null
       const [counters, setCounters] = React.useState(null) // {consecutive, total, limits} | null
       const [kindFilter, setKindFilter] = React.useState(allowedFilters.indexOf(initialPrefs.kindFilter) >= 0 ? initialPrefs.kindFilter : 'all')
       const [viewTab, setViewTab] = React.useState(initialPrefs.viewTab === 'settings' ? 'settings' : 'records')
@@ -643,6 +653,20 @@ window.__ModuleLoader__.load({
             setRulesSnap(function (prev) {
               try { if (prev && JSON.stringify(prev) === JSON.stringify(res)) return prev } catch (e) {}
               return res
+            })
+          })
+          .catch(function () {})
+      }
+
+      const loadProjectStats = function () {
+        fetch('/api/auto-approve/project-stats', { headers: { 'cache-control': 'no-cache' } })
+          .then(function (r) { return r.json() })
+          .then(function (res) {
+            if (!res || !res.ok) return
+            const next = { projects: Array.isArray(res.projects) ? res.projects : [], total: res.total || 0, projectCount: res.projectCount || 0 }
+            setProjectStats(function (prev) {
+              try { if (prev && JSON.stringify(prev) === JSON.stringify(next)) return prev } catch (e) {}
+              return next
             })
           })
           .catch(function () {})
@@ -722,10 +746,11 @@ window.__ModuleLoader__.load({
         setSnapIds(null)
         setCounters(null)
         setRulesSnap(null)
+        setProjectStats(null)
         setDiffOpen(null)
         setRemembered({})
         lastIdRef.current = 0
-        if (!sessionId) { setEvents([]); loadSnapStats(null); return }
+        if (!sessionId) { setEvents([]); loadSnapStats(null); loadProjectStats(); return }
         let alive = true
         let tick = 0
         const load = function (force) {
@@ -758,6 +783,7 @@ window.__ModuleLoader__.load({
           loadSnapStats(sessionId)
           loadCounters(sessionId)
           loadRules()
+          if (full) loadProjectStats()
         }
         loadRef.current = load
         load(true)
@@ -1018,6 +1044,28 @@ window.__ModuleLoader__.load({
                   ),
             ),
           ),
+          projectStats
+            ? React.createElement('div', { className: 'ag-panel ag-project-panel' },
+                React.createElement('div', { className: 'ag-panel-title' }, '按项目 / 目录（全部会话）'),
+                projectStats.projects.length === 0
+                  ? React.createElement('div', { className: 'ag-set-empty' }, '暂无带目录的审批记录')
+                  : React.createElement('div', { className: 'ag-project-list' },
+                      projectStats.projects.slice(0, 8).map(function (p) {
+                        return React.createElement('div', { className: 'ag-project-row', key: p.path || 'unknown', title: p.path || '历史事件没有 cwd' },
+                          React.createElement('span', { className: 'ag-project-name' }, p.name),
+                          React.createElement('span', { className: 'ag-project-path' }, p.path || '—'),
+                          React.createElement('span', { className: 'ag-project-bar' },
+                            React.createElement('span', { className: 'ag-project-fill', style: { width: Math.max(2, p.autoRate) + '%' } }),
+                          ),
+                          React.createElement('span', { className: 'ag-project-meta' },
+                            p.total + ' 条 · 自动 ' + p.auto + ' · 拒绝 ' + p.rejected + (p.shadow ? ' · Shadow ' + p.shadow : '')),
+                        )
+                      }),
+                    ),
+                React.createElement('div', { className: 'ag-project-foot' },
+                  '共 ' + projectStats.projectCount + ' 个项目 · ' + projectStats.total + ' 条已落地记录；历史无 cwd 归入“未知目录”，不做回溯推断。'),
+              )
+            : null,
         ),
         (counts.rejected + counts.escalate) > 0
           ? React.createElement('div', { className: 'ag-attention' },
