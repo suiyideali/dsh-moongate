@@ -1473,7 +1473,7 @@ function ruleSuggestion(rule) {
   const c = String(rule && rule.contains || '')
   const hasPath = /[\/~]/.test(c)
   if (!rule.tool) return '补上 tool 限定（如 bash/edit），并把 contains 换成具体路径或文件名'
-  if (c && !hasPath) return '删除该规则，改为对具体操作点「记住」生成路径指纹；或在 ⑦ 规则库 → 信任目录 添加或配置 trustRoots 限定目录'
+  if (c && !hasPath) return '删除该规则，改为对具体操作点「记住」生成路径指纹；或在 ⑥ 规则库 → 信任目录 添加或配置 trustRoots 限定目录'
   if (rule.mode === 'danger-full-access' && !c) return '加 contains（具体路径）或改用 trustRoots'
   return '收窄条件（tool + mode + 具体路径/文件名）'
 }
@@ -2713,7 +2713,7 @@ export default {
     try {
       const w = scanOverbroadRules()
       const n = (w.allowRules || []).length + (w.trustRoots || []).length
-      if (n > 0) audit(`SCAN ${n} 条可能过宽的规则/信任目录（见设置页 ⑦ 规则库）`)
+      if (n > 0) audit(`SCAN ${n} 条可能过宽的规则/信任目录（见设置页 ⑥ 规则库）`)
     } catch (error) { /* 扫描失败不影响挂载 */ }
 
     console.log(`[${NAME}] v3 已挂载：DENY→白名单→denyRules→flash(SAFE/硬类别/中立计数${config.riskyThreshold})→裁决学习（配置: ${ALLOWLIST_PATH}）`)

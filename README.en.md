@@ -64,7 +64,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Real tool-call input** | Resolves `callId` to the actual `tool/call` arguments (redacted, truncated to 4 KB) |
 | **Confirmation learning** | Neutral operations auto-approve after the threshold; fingerprint hits and semantic same-class verification |
 | **Read-only fast path** | Works on first install: strictly read-only `git status` / `gh pr view` / `ls` / `cat` / `grep` / `sed -n` commands need no confirmation; only whitelisted programs, no pipes/redirection, paths inside the command cwd, and no rules/learning/snapshots written |
-| **Project trust** | Opt in per project root: only `edit`/`write` and recognized `test`/`build` commands (`npm test`, `go test`, etc.) under that root are allowed; `git push`, network, and deletion still ask. Configure under ⑦ Rule library → Trusted dirs |
+| **Project trust** | Opt in per project root: only `edit`/`write` and recognized `test`/`build` commands (`npm test`, `go test`, etc.) under that root are allowed; `git push`, network, and deletion still ask. Configure under ⑥ Rule library → Trusted dirs |
 | **Command-intent learning** | Extracts safe command intents from real bash arguments (`git status`, `npm test`, `gh pr view`, …) and binds them to cwd; `npm test` and `npm publish` no longer share a learning key, and unrecognized commands never enter learning |
 | **Semantic reuse** | After one manual approval, similar neutral operations are checked by Flash (SAME/DIFFERENT) using the real arguments and requiring the same program (bash) or tool; only the current operation is allowed, no rule is sedimented; off by default |
 | **Remember / forget** | One click in the approval view; path fingerprint when available, exact-description matching otherwise; reversible |
@@ -173,10 +173,10 @@ After a reload, the session permission dropdown shows **自动审批（Flash）*
 1. Select **自动审批（Flash）** in the session permission dropdown — per session only.
 2. **No learning setup is required**: self-learning, session memory, and cross-session promotion are on by default. The first time you open Settings → Auto approval, a short note explains:
    - **Default**: after 3 consecutive Flash `SAFE` verdicts (at least 1 session), a rule is learned; session memory / promotion / graduation are also on;
-   - **More conservative**: turn self-learning off or raise the thresholds in ⑥;
-   - **Faster**: lower the thresholds; click **Trust** on a project-stat row, or add trust roots / project trust in ⑦.
+   - **More conservative**: turn self-learning off or raise the thresholds in ⑤;
+   - **Faster**: lower the thresholds; click **Trust** on a project-stat row, or add trust roots / project trust in ⑥.
 3. Work normally: safe operations run silently, uncertain ones prompt you; approved repeats are reused in this session and promoted to global rules across sessions.
-4. For control: **Remember this operation** per row, manage everything in **⑦ Rule library** (including inline editing), tune thresholds in **⑥ Auto learning**.
+4. For control: **Remember this operation** per row, manage everything in **⑥ Rule library** (including inline editing), tune thresholds in **⑤ Learning & sedimentation**.
 
 ## UI
 
@@ -204,7 +204,7 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 
 The approval view embeds the full Auto approval settings (the same configuration as the Settings page):
 
-- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / ⑤ Learning / ⑥ Auto learning / ⑦ Rule library;
+- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / ⑤ Learning & sedimentation / ⑥ Rule library;
 - click to scroll to the card; changes apply hot without leaving the view;
 - the Settings → Auto approval entry remains as a second entry point.
 
@@ -217,9 +217,8 @@ Eight configuration cards:
 | ③ denyRules | Permanently manual rules |
 | ④ Flash | `riskyThreshold`, `judgeTimeoutMs` |
 | Shadow | Observation toggle; candidates are recorded, not auto-approved |
-| ⑤ Learning | Keys currently learning and their progress |
-| ⑥ Auto learning | Session memory, promotion, graduation, self-learning, two-stage, semantic reuse |
-| ⑦ Rule library | Unified rule management + inline editing + health check + export |
+| ⑤ Learning & sedimentation | Manual-confirmation keys/threshold + session memory, promotion, graduation, self-learning, two-stage, semantic reuse |
+| ⑥ Rule library | Unified rule management + inline editing + health check + export |
 
 > **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
 
@@ -258,7 +257,7 @@ flowchart TD
 | Signature graduation | Repeated manual approvals of similar ops | Global rule | On (3 / 2 sessions) |
 | Self-learning | Consecutive Flash `SAFE` verdicts | Global rule | **On** (3 verdicts / 1 session; can be turned off) |
 
-Self-learning is on by default so a new user can reduce repeat approvals without studying the settings first. It is still the only layer without a human label, so guardrails apply: path signature, no deny history, verdict/session thresholds, a 50-rule cap; dangerous categories never enter learning, and rejection/revert removes the rule and progress. Turn it off in ⑥ for a fully conservative setup; an explicit `false` is never overridden by an upgrade.
+Self-learning is on by default so a new user can reduce repeat approvals without studying the settings first. It is still the only layer without a human label, so guardrails apply: path signature, no deny history, verdict/session thresholds, a 50-rule cap; dangerous categories never enter learning, and rejection/revert removes the rule and progress. Turn it off in ⑤ for a fully conservative setup; an explicit `false` is never overridden by an upgrade.
 
 ### How cross-session learning works
 
@@ -269,7 +268,7 @@ Self-learning is on by default so a new user can reduce repeat approvals without
 | Signature graduation | Same class approved 3 times across 2 sessions with no deny history | Global signature rule |
 | Self-learning | 3 consecutive Flash `SAFE` verdicts in at least 1 session | Global rule (no human label) |
 
-These rules are **global**: a test command or project write learned in session A also applies in session B. Audit or delete them by source, hit count, and evidence in ⑦ Rules.
+These rules are **global**: a test command or project write learned in session A also applies in session B. Audit or delete them by source, hit count, and evidence in ⑥ Rules.
 
 ## Configuration
 
@@ -343,13 +342,13 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 
 ## FAQ
 
-**Why is self-learning on by default?** It lets a new user reduce repeat approvals without configuration; dangerous categories, deny history, and explicit permanent-manual rules still win, and rejection/revert removes learned rules. Turn it off in ⑥ if you prefer a conservative setup; upgrades preserve that choice.
+**Why is self-learning on by default?** It lets a new user reduce repeat approvals without configuration; dangerous categories, deny history, and explicit permanent-manual rules still win, and rejection/revert removes learned rules. Turn it off in ⑤ if you prefer a conservative setup; upgrades preserve that choice.
 
 **Can I install it alongside upstream?** Not recommended; both compete for the `auto-approve` preset and `approval/request`.
 
 **Where is learning data?** `~/.dsh/auto-approve/`; reinstalling the plugin does not delete it. Back it up before DSH upgrades.
 
-**How do I trust a directory?** Add it in ⑥ or ⑦ (for example `~/src`); it bypasses prompts but not DENY/hard-risk rules.
+**How do I trust a directory?** Add it in ⑤ or ⑥ (for example `~/src`); it bypasses prompts but not DENY/hard-risk rules.
 
 **Why is the approval view empty?** No sandbox escalations yet, or the session is not on the auto-approve preset.
 
