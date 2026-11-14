@@ -81,10 +81,10 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 > Targets **DeepSeek Harness 0.2.x** (verified on 0.2.2-rc.1). Reload the plugin after host changes (toggle the plugin row or restart the app); client-only changes need a page refresh.
 >
 > **Desktop note**: DSH Desktop manages the `desktop` profile itself; `dsh plugin --profile desktop ...` is rejected (`profile "desktop" is managed exclusively by the Electron application`). Use the app's plugin manager instead. The CLI examples below use `<profile>` for a CLI-managed profile such as `web`; do not substitute `desktop`.
+>
+> **Primary install method: use the DSH app.** No CLI needed; Desktop users should start with Option 1.
 
-### Option 1: install the fork (recommended)
-
-#### Install in the DSH app (Desktop)
+### Option 1: install in the DSH app (recommended)
 
 No CLI needed. In the DSH sidebar:
 
@@ -100,7 +100,7 @@ No CLI needed. In the DSH sidebar:
 
 > The dialog also accepts an npm package name, a tarball, or an absolute local path. This example uses the Git address, so no npm release is required. The Desktop `desktop` profile is managed by the app, so the in-app plugin manager is the correct install path there.
 
-#### Install with the CLI (CLI-managed profiles only)
+### Option 2: install with the CLI (CLI-managed profiles only)
 
 ```sh
 dsh plugin --profile <profile> add github:suiyideali/dsh-moongate
@@ -108,7 +108,7 @@ dsh plugin --profile <profile> add github:suiyideali/dsh-moongate
 # dsh plugin --profile <profile> add dsh-moongate
 ```
 
-Migrating from upstream on Desktop:
+### Migrating from upstream on Desktop
 
 1. Back up `~/.dsh/auto-approve/`, the profile's `cordis.patch.yml`, and `pnpm-workspace.yaml`.
 2. Disable/remove `dsh-approval-gate` in the plugin manager, then delete the `'dsh-approval-gate@0.5.0': ...` line from `patchedDependencies`.
@@ -117,7 +117,7 @@ Migrating from upstream on Desktop:
 
 > Do not enable `dsh-approval-gate` and `dsh-moongate` together; both would compete for `approval/request`.
 
-### Option 2: patch the upstream package
+### Option 3: patch the upstream package
 
 For a CLI-managed profile that already has upstream `dsh-approval-gate@0.5.0`:
 
@@ -133,7 +133,7 @@ pnpm install
 
 > The patch option keeps the upstream package name and internal id (`dsh-approval-gate`), for people already on upstream; do not install it alongside the fork package `dsh-moongate`. Both use `~/.dsh/auto-approve/`.
 
-### Permission preset (required for both)
+### Permission preset (required for all install options)
 
 The preset table is frozen at composition time; add one entry to the profile `cordis.patch.yml`:
 
