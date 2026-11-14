@@ -103,7 +103,7 @@ window.__ModuleLoader__.load({
 .ag-set-note{color:var(--dsw-alias-state-warn-label);margin:0;font-size:13px;line-height:20px}
 .ag-set-ok{color:var(--dsw-alias-state-success-primary);margin:0;font-size:13px;line-height:20px}
 .ag-set-err{color:var(--dsw-alias-state-error-primary);margin:0;font-size:13px;line-height:20px}
-.ag-set-row{flex-wrap:wrap;gap:8px;display:flex}
+.ag-set-row{flex-wrap:wrap;gap:8px;display:flex;align-items:center}
 .ag-set-input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);height:32px;min-width:0;color:var(--dsw-alias-label-primary);font:inherit;border-radius:8px;outline:none;padding:0 10px;font-size:13px;line-height:20px;font-family:var(--ds-font-family-code)}
 .ag-set-input:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 18%, transparent)}
 .ag-set-input::placeholder{color:var(--dsw-alias-label-caption)}
@@ -284,6 +284,42 @@ window.__ModuleLoader__.load({
   .ag-project-row{grid-template-columns:minmax(0,1fr) 90px}
   .ag-project-path,.ag-project-bar{display:none}
 }
+/* ---- settings controls: calmer buttons, real switches ---- */
+.ag-set-btn{height:30px;border-radius:9px;padding:0 12px;font-size:12px;line-height:18px;border-color:color-mix(in srgb,var(--dsw-alias-border-l2) 78%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent);transition:background .14s ease,border-color .14s ease,transform .1s ease,box-shadow .14s ease}
+.ag-set-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}
+.ag-set-btn:active:not(:disabled){transform:translateY(1px)}
+.ag-set-btn-primary{border-color:transparent;background:var(--dsw-alias-button-primary-fill);box-shadow:0 1px 2px color-mix(in srgb,#000 12%,transparent)}
+.ag-set-btn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover);border-color:transparent}
+.ag-set-btn-danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 24%,var(--dsw-alias-border-l2));background:transparent}
+.ag-btn-xs{height:26px;border-radius:7px;padding:0 9px;font-size:11px;line-height:16px}
+.ag-field-control{gap:8px}
+.ag-switch{box-sizing:border-box;position:relative;flex:none;width:36px;height:21px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-module-platform);cursor:pointer;transition:background .18s ease,border-color .18s ease;box-shadow:inset 0 1px 2px color-mix(in srgb,#000 7%,transparent);corner-shape:round}
+.ag-switch:hover:not(:disabled){border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2))}
+.ag-switch:focus-visible,.ag-remember-btn:focus-visible,.ag-set-btn:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
+.ag-switch:disabled{opacity:.45;cursor:default}
+.ag-switch-thumb{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:999px;background:var(--dsw-alias-switch-thumb);box-shadow:0 1px 3px color-mix(in srgb,#000 22%,transparent);transition:transform .18s cubic-bezier(.2,.8,.2,1),background .18s ease;corner-shape:round}
+.ag-switch-on{background:var(--dsw-alias-state-business-primary);border-color:transparent;box-shadow:inset 0 0 0 1px color-mix(in srgb,#fff 10%,transparent)}
+.ag-switch-on .ag-switch-thumb{transform:translateX(15px);background:var(--dsw-alias-label-primary-foreground)}
+.ag-switch-pair{display:inline-flex;align-items:center;gap:8px}
+.ag-switch-state{min-width:30px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;white-space:nowrap}
+.ag-switch-on + .ag-switch-state{color:var(--dsw-alias-label-primary)}
+/* ---- remember action: high-contrast in both themes ---- */
+.ag-remember-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:26px;padding:0 10px;border:1px solid transparent;border-radius:7px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);font:inherit;font-size:11px;font-weight:500;line-height:16px;white-space:nowrap;cursor:pointer;box-shadow:0 1px 2px color-mix(in srgb,#000 14%,transparent);transition:background .14s ease,border-color .14s ease,transform .1s ease,opacity .14s ease}
+.ag-remember-btn:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
+.ag-remember-btn:active:not(:disabled){transform:translateY(1px)}
+.ag-remember-btn:disabled{opacity:.5;cursor:default}
+.ag-remember-btn-on{border-color:var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);box-shadow:none}
+.ag-remember-btn-on:hover:not(:disabled){border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.ag-remember-btn-error{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,var(--dsw-alias-border-l2));background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);box-shadow:none}
+.ag-remember-btn-error:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 16%,var(--dsw-alias-bg-layer-1))}
+/* ---- settings typography: make card headings readable ---- */
+.ag-set-title{font-size:18px;font-weight:600;line-height:26px;letter-spacing:-.01em}
+.ag-set-intro{font-size:14px;line-height:21px}
+.ag-set-card-head{gap:6px}
+.ag-set-card-title{font-size:16px;font-weight:600;line-height:24px;letter-spacing:-.005em}
+.ag-set-stage{height:24px;border-radius:12px;padding:0 10px;font-size:12px;line-height:24px;font-weight:600;letter-spacing:.01em}
+.ag-set-card-sub{font-size:13.5px;line-height:20px}
+.ag-set-item-label{font-size:13.5px;line-height:20px}
 `
 
     const VERDICT_LABELS = {
@@ -1007,7 +1043,7 @@ window.__ModuleLoader__.load({
             React.createElement('div', { className: 'ag-row-actions' },
               kind !== 'manual-rejected' && kind !== 'escalate' && kind !== 'shadow-candidate' && ev.mode
                 ? React.createElement('button', {
-                    type: 'button', className: 'ag-set-btn ag-btn-xs',
+                    type: 'button', className: 'ag-remember-btn' + (isRemembered ? ' ag-remember-btn-on' : '') + (errored ? ' ag-remember-btn-error' : ''),
                     disabled: busy,
                     onClick: function () { if (isRemembered) doForget(ev); else doRemember(ev) },
                     title: errored ? ('记住失败：' + ov.slice(6)) : (isRemembered ? '取消记住：删除该操作的白名单规则' : '把这次操作沉淀为白名单规则'),
@@ -1427,6 +1463,16 @@ window.__ModuleLoader__.load({
           hint ? React.createElement('span', { className: 'ag-field-hint' }, hint) : null,
         )
       }
+      const switchToggle = function (checked, onClick, label) {
+        return React.createElement('span', { className: 'ag-switch-pair' },
+          React.createElement('button', {
+            type: 'button', role: 'switch', 'aria-checked': checked, 'aria-label': label,
+            className: 'ag-switch' + (checked ? ' ag-switch-on' : ''),
+            disabled: busy, onClick: onClick,
+          }, React.createElement('span', { className: 'ag-switch-thumb' })),
+          React.createElement('span', { className: 'ag-switch-state' }, checked ? '已开启' : '已关闭'),
+        )
+      }
       const ruleItem = function (key, label, desc, tags, actions) {
         return React.createElement('div', { className: 'ag-rule-item', key: key },
           React.createElement('div', { className: 'ag-rule-main' },
@@ -1690,10 +1736,7 @@ window.__ModuleLoader__.load({
               '开启后，命中原有自动放行路径（信任目录、会话记忆、白名单规则、Flash SAFE、沉淀规则、已确认操作）的请求仍转人工；系统只记录一条 Shadow 候选，告诉你“如果关闭观察，这次本可自动放行”。观察期不写规则、不写学习计数、不生成快照。')),
           React.createElement('div', { className: 'ag-set-row' },
             React.createElement('span', { className: 'ag-set-item-meta' }, 'Shadow 模式：'),
-            React.createElement('button', {
-              type: 'button', className: 'ag-set-btn', disabled: busy,
-              onClick: function () { api({ op: 'set', kind: 'shadow', value: !(cfg.shadow === true) }) },
-            }, cfg.shadow === true ? '关闭' : '开启'),
+            switchToggle(cfg.shadow === true, function () { api({ op: 'set', kind: 'shadow', value: !(cfg.shadow === true) }) }, 'Shadow 模式'),
             React.createElement('span', { className: 'ag-set-item-meta' },
               cfg.shadow === true ? '观察中：所有候选转人工，仅记录' : '当前关闭：按正常策略自动放行'),
           ),
@@ -1780,16 +1823,16 @@ window.__ModuleLoader__.load({
             : null,
           React.createElement('div', { className: 'ag-set-group' },
             field('会话记忆',
-              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'sessionMemory', value: !(cfg.sessionMemory !== false) }) } }, cfg.sessionMemory !== false ? '开' : '关'),
+              switchToggle(cfg.sessionMemory !== false, function () { api({ op: 'set', kind: 'sessionMemory', value: !(cfg.sessionMemory !== false) }) }, '会话记忆'),
               '本会话人工批准过的同操作直接放行'),
             field('两段式判定',
-              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'twoStage', value: !(cfg.twoStage === true) }) } }, cfg.twoStage === true ? '开' : '关'),
+              switchToggle(cfg.twoStage === true, function () { api({ op: 'set', kind: 'twoStage', value: !(cfg.twoStage === true) }) }, '两段式判定'),
               '快筛 + 复评；当前快筛模型偏保守，默认关'),
             field('语义近似复用',
-              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'semanticReuse', value: !(cfg.semanticReuse === true) }) } }, cfg.semanticReuse === true ? '开' : '关'),
+              switchToggle(cfg.semanticReuse === true, function () { api({ op: 'set', kind: 'semanticReuse', value: !(cfg.semanticReuse === true) }) }, '语义近似复用'),
               '一次人工批准后，同类操作由 Flash 语义验证；默认关，不沉淀规则'),
             field('自学习',
-              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'selfLearn', value: !(cfg.selfLearn === true) }) } }, cfg.selfLearn === true ? '开' : '关'),
+              switchToggle(cfg.selfLearn === true, function () { api({ op: 'set', kind: 'selfLearn', value: !(cfg.selfLearn === true) }) }, '自学习'),
               '从 Flash 连续 SAFE 判定毕业（无人工确认）'),
             field('跨会话晋升（会话数）',
               [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: promotionSessions, onChange: function (e) { setPromotionSessions(e.target.value) } }),
