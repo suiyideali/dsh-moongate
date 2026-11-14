@@ -312,7 +312,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 ## Roadmap
 
 - [x] Inline rule editing (tool/mode/category/contains/description);
-- [ ] Semantic reuse (generalize from a single approval);
+- [x] Semantic reuse (Flash verifies similar operations after one approval; allows only the current operation);
 - [x] Shadow mode: record "would auto-approve" candidates before enabling;
 - [x] Per-project stats (all sessions, unknown-directory fallback);
 - [x] i18n (follows the browser language; main UI in Chinese/English).
