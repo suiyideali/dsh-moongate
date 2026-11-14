@@ -242,7 +242,6 @@ window.__ModuleLoader__.load({
 .ag-view-pill{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 82%,transparent);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:20px;white-space:nowrap}
 .ag-view-pill-dot{width:5px;height:5px;border-radius:999px;background:var(--dsw-alias-state-success-primary)}
 .ag-view-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 0 12px}
-.ag-view-sid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);padding-right:2px}
 .ag-export-btn{background:var(--dsw-alias-button-primary-fill);border-color:transparent;color:var(--dsw-alias-label-primary-foreground)}
 .ag-export-btn:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover);border-color:transparent}
 .ag-export-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}
@@ -902,20 +901,6 @@ window.__ModuleLoader__.load({
         setExportMsg(msg)
         setTimeout(function () { setExportMsg(function (cur) { return cur === msg ? '' : cur }) }, 4000)
       }
-      const copySessionId = function () {
-        if (!sessionId) return
-        try {
-          const copied = navigator.clipboard.writeText(String(sessionId))
-          if (copied && typeof copied.then === 'function') {
-            copied.then(function () { flashExportMsg(T('已复制会话 ID','Session ID copied')) })
-              .catch(function (e) { flashExportMsg(T('复制失败：','Copy failed: ') + String((e && e.message) || e)) })
-          } else {
-            flashExportMsg(T('已复制会话 ID','Session ID copied'))
-          }
-        } catch (e) {
-          flashExportMsg(T('复制失败：','Copy failed: ') + String((e && e.message) || e))
-        }
-      }
       const exportSessionJson = function () {
         if (!sessionId || exportBusy) return
         setExportBusy(true)
@@ -1185,14 +1170,6 @@ window.__ModuleLoader__.load({
             ),
           ),
           React.createElement('div', { className: 'ag-view-tools' },
-            React.createElement('span', { className: 'ag-view-sid', title: sessionId || '' },
-              sessionId ? (T('会话 ','Session ') + String(sessionId).slice(0, 8) + '…') : T('无会话','No session')),
-            React.createElement('button', {
-              type: 'button', className: 'ag-set-btn ag-btn-xs',
-              disabled: !sessionId,
-              onClick: copySessionId,
-              title: sessionId ? T('复制完整会话 ID','Copy full session ID') : '',
-            }, T('复制会话 ID','Copy session ID')),
             React.createElement('button', {
               type: 'button', className: 'ag-set-btn ag-btn-xs ag-export-btn',
               disabled: !sessionId || exportBusy,

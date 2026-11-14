@@ -186,7 +186,7 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 | | Four-segment distribution bar + rule overview: total / self-learned / graduated / trust roots | How much is automated, and how much has been learned? |
 | | 7-day approval trend + top tools | When, and with which tools, do approvals happen? |
 | | Per-project/directory aggregation (all sessions): name, path, auto-rate bar, total/auto/rejected/Shadow | Which projects trigger approvals most, and how automated are they? |
-| **Session export** | Copy the full session ID; export this session's settled approval events as JSON (summary + chronological events reconstructing the route) | What was this session's call route, and can it feed offline plugin learning? |
+| **Session export** | Export this session's settled approval events as JSON (summary + chronological events reconstructing the route) | What was this session's call route, and can it feed offline plugin learning? |
 | **Filters** | All / auto / manual / rejected / escalated / attention chips + search over tool, reason and arguments | Find a class of records quickly |
 | **Timeline** | Date-grouped rows with tool, verdict tag, time, reason, real arguments, remember/forget, files and diff snapshots | What exactly happened, why was it allowed, and can I undo it? |
 
