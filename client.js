@@ -279,6 +279,25 @@ window.__ModuleLoader__.load({
   .ag-project-row{grid-template-columns:minmax(0,1fr) 90px}
   .ag-project-path,.ag-project-bar{display:none}
 }
+/* ---- settings controls: calmer buttons, real switches ---- */
+.ag-set-btn{height:30px;border-radius:9px;padding:0 12px;font-size:12px;line-height:18px;border-color:color-mix(in srgb,var(--dsw-alias-border-l2) 78%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent);transition:background .14s ease,border-color .14s ease,transform .1s ease,box-shadow .14s ease}
+.ag-set-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}
+.ag-set-btn:active:not(:disabled){transform:translateY(1px)}
+.ag-set-btn-primary{border-color:transparent;background:var(--dsw-alias-button-primary-fill);box-shadow:0 1px 2px color-mix(in srgb,#000 12%,transparent)}
+.ag-set-btn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover);border-color:transparent}
+.ag-set-btn-danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 24%,var(--dsw-alias-border-l2));background:transparent}
+.ag-btn-xs{height:26px;border-radius:7px;padding:0 9px;font-size:11px;line-height:16px}
+.ag-field-control{gap:8px}
+.ag-switch{box-sizing:border-box;position:relative;flex:none;width:36px;height:21px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-module-platform);cursor:pointer;transition:background .18s ease,border-color .18s ease;box-shadow:inset 0 1px 2px color-mix(in srgb,#000 7%,transparent)}
+.ag-switch:hover:not(:disabled){border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2))}
+.ag-switch:focus-visible{outline:2px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,transparent);outline-offset:2px}
+.ag-switch:disabled{opacity:.45;cursor:default}
+.ag-switch-thumb{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:999px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 3px color-mix(in srgb,#000 22%,transparent);transition:transform .18s cubic-bezier(.2,.8,.2,1),background .18s ease}
+.ag-switch-on{background:var(--dsw-alias-state-business-primary);border-color:transparent;box-shadow:inset 0 0 0 1px color-mix(in srgb,#fff 10%,transparent)}
+.ag-switch-on .ag-switch-thumb{transform:translateX(15px);background:#fff}
+.ag-switch-pair{display:inline-flex;align-items:center;gap:8px}
+.ag-switch-state{min-width:30px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;white-space:nowrap}
+.ag-switch-on + .ag-switch-state{color:var(--dsw-alias-state-business-primary)}
 `
 
     const VERDICT_LABELS = {
@@ -1411,6 +1430,16 @@ window.__ModuleLoader__.load({
           hint ? React.createElement('span', { className: 'ag-field-hint' }, hint) : null,
         )
       }
+      const switchToggle = function (checked, onClick, label) {
+        return React.createElement('span', { className: 'ag-switch-pair' },
+          React.createElement('button', {
+            type: 'button', role: 'switch', 'aria-checked': checked, 'aria-label': label,
+            className: 'ag-switch' + (checked ? ' ag-switch-on' : ''),
+            disabled: busy, onClick: onClick,
+          }, React.createElement('span', { className: 'ag-switch-thumb' })),
+          React.createElement('span', { className: 'ag-switch-state' }, checked ? '已开启' : '已关闭'),
+        )
+      }
       const ruleItem = function (key, label, desc, tags, actions) {
         return React.createElement('div', { className: 'ag-rule-item', key: key },
           React.createElement('div', { className: 'ag-rule-main' },
@@ -1674,10 +1703,7 @@ window.__ModuleLoader__.load({
               '开启后，命中原有自动放行路径（信任目录、会话记忆、白名单规则、Flash SAFE、沉淀规则、已确认操作）的请求仍转人工；系统只记录一条 Shadow 候选，告诉你“如果关闭观察，这次本可自动放行”。观察期不写规则、不写学习计数、不生成快照。')),
           React.createElement('div', { className: 'ag-set-row' },
             React.createElement('span', { className: 'ag-set-item-meta' }, 'Shadow 模式：'),
-            React.createElement('button', {
-              type: 'button', className: 'ag-set-btn', disabled: busy,
-              onClick: function () { api({ op: 'set', kind: 'shadow', value: !(cfg.shadow === true) }) },
-            }, cfg.shadow === true ? '关闭' : '开启'),
+            switchToggle(cfg.shadow === true, function () { api({ op: 'set', kind: 'shadow', value: !(cfg.shadow === true) }) }, 'Shadow 模式'),
             React.createElement('span', { className: 'ag-set-item-meta' },
               cfg.shadow === true ? '观察中：所有候选转人工，仅记录' : '当前关闭：按正常策略自动放行'),
           ),
@@ -1745,16 +1771,16 @@ window.__ModuleLoader__.load({
             : null,
           React.createElement('div', { className: 'ag-set-group' },
             field('会话记忆',
-              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'sessionMemory', value: !(cfg.sessionMemory !== false) }) } }, cfg.sessionMemory !== false ? '开' : '关'),
+              switchToggle(cfg.sessionMemory !== false, function () { api({ op: 'set', kind: 'sessionMemory', value: !(cfg.sessionMemory !== false) }) }, '会话记忆'),
               '本会话人工批准过的同操作直接放行'),
             field('两段式判定',
-              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'twoStage', value: !(cfg.twoStage === true) }) } }, cfg.twoStage === true ? '开' : '关'),
+              switchToggle(cfg.twoStage === true, function () { api({ op: 'set', kind: 'twoStage', value: !(cfg.twoStage === true) }) }, '两段式判定'),
               '快筛 + 复评；当前快筛模型偏保守，默认关'),
             field('语义近似复用',
-              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'semanticReuse', value: !(cfg.semanticReuse === true) }) } }, cfg.semanticReuse === true ? '开' : '关'),
+              switchToggle(cfg.semanticReuse === true, function () { api({ op: 'set', kind: 'semanticReuse', value: !(cfg.semanticReuse === true) }) }, '语义近似复用'),
               '一次人工批准后，同类操作由 Flash 语义验证；默认关，不沉淀规则'),
             field('自学习',
-              React.createElement('button', { type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'selfLearn', value: !(cfg.selfLearn === true) }) } }, cfg.selfLearn === true ? '开' : '关'),
+              switchToggle(cfg.selfLearn === true, function () { api({ op: 'set', kind: 'selfLearn', value: !(cfg.selfLearn === true) }) }, '自学习'),
               '从 Flash 连续 SAFE 判定毕业（无人工确认）'),
             field('跨会话晋升（会话数）',
               [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: promotionSessions, onChange: function (e) { setPromotionSessions(e.target.value) } }),
