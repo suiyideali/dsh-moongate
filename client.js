@@ -211,6 +211,12 @@ window.__ModuleLoader__.load({
 .ag-search{width:200px}
 .ag-group{display:flex;flex-direction:column;gap:2px}
 .ag-group-label{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption);padding:8px 10px 2px;position:sticky;top:0;background:var(--dsw-alias-bg-layer-1);z-index:1}
+.ag-onboard{display:flex;align-items:center;gap:14px;margin:10px 14px 0;padding:11px 13px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-l2)}
+.ag-onboard-body{min-width:0}
+.ag-onboard-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:2px}
+.ag-onboard-text{font-size:12px;line-height:1.55;color:var(--dsw-alias-label-secondary)}
+.ag-onboard-actions{display:flex;gap:8px;margin-left:auto;flex:none}
+.ag-learn-note{margin:8px 0 10px;padding:8px 10px;border-radius:8px;background:var(--dsw-alias-bg-l1);font-size:12px;line-height:1.55;color:var(--dsw-alias-label-secondary)}
 .ag-tabbar{flex:none;display:flex;align-items:center;gap:4px;padding:6px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .ag-tab{border:none;background:transparent;height:28px;padding:0 10px;border-radius:8px;font:inherit;font-size:12px;line-height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative}
 .ag-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -272,6 +278,8 @@ window.__ModuleLoader__.load({
 .ag-project-name{font-size:12px}
 .ag-project-bar{height:7px}
 .ag-project-foot{border-top:1px dashed var(--dsw-alias-border-l1);padding-top:6px}
+.ag-project-trust{display:flex;justify-content:flex-end;min-width:0}
+.ag-project-trust .ag-set-btn{height:24px!important;padding:0 9px!important;font-size:11px!important}
 .ag-attention{margin:10px 18px 0;border-radius:10px}
 .ag-toolbar2{padding:9px 18px}
 .ag-snap-bar{padding:8px 18px}
@@ -282,6 +290,7 @@ window.__ModuleLoader__.load({
   .ag-substat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ag-view-badges{display:none}
   .ag-project-row{grid-template-columns:minmax(0,1fr) 90px}
+  .ag-project-trust{display:none}
   .ag-project-path,.ag-project-bar{display:none}
 }
 /* ---- settings controls: calmer buttons, real switches ---- */
@@ -763,6 +772,24 @@ window.__ModuleLoader__.load({
           .catch(function () {})
       }
 
+      const projectTrusted = function (path) {
+        const roots = Array.isArray(rulesCfg.projectTrust) ? rulesCfg.projectTrust : []
+        return roots.some(function (root) {
+          const r = String(root || '').replace(/\/+$/, '')
+          return r && (path === r || String(path).startsWith(r + '/'))
+        })
+      }
+      const trustProject = function (path) {
+        if (!path || projectTrusted(path)) return
+        fetch('/api/auto-approve/rules', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'add', kind: 'projectTrust', value: path }),
+        }).then(function (r) { return r.json() }).then(function (res) {
+          if (res && res.ok) loadRules()
+        }).catch(function () {})
+      }
+
       const loadProjectStats = function () {
         fetch('/api/auto-approve/project-stats', { headers: { 'cache-control': 'no-cache' } })
           .then(function (r) { return r.json() })
@@ -1074,6 +1101,19 @@ window.__ModuleLoader__.load({
           ),
         )
       }
+      const dismissOnboarding = function () {
+        fetch('/api/auto-approve/rules', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'set', kind: 'onboarded', value: true }),
+        }).then(function (r) { return r.json() }).then(function (res) {
+          if (!res || !res.ok) return
+          setRulesSnap(function (prev) {
+            if (!prev || !prev.config) return prev
+            return Object.assign({}, prev, { config: Object.assign({}, prev.config, { onboarded: true }) })
+          })
+        }).catch(function () {})
+      }
       return React.createElement('div', { className: 'ag-view' },
         React.createElement('div', { className: 'ag-view-head' },
           React.createElement('div', { className: 'ag-view-hero' },
@@ -1096,6 +1136,30 @@ window.__ModuleLoader__.load({
             ),
           ),
         ),
+        rulesSnap && rulesCfg.onboarded !== true
+          ? React.createElement('div', { className: 'ag-onboard' },
+              React.createElement('div', { className: 'ag-onboard-body' },
+                React.createElement('div', { className: 'ag-onboard-title' },
+                  rulesCfg.selfLearn !== false
+                    ? T('自学习已开启（推荐）','Self-learning is on (recommended)')
+                    : T('自学习当前关闭','Self-learning is currently off')),
+                React.createElement('div', { className: 'ag-onboard-text' },
+                  rulesCfg.selfLearn !== false
+                    ? T('你批准过的同类操作会先在当前会话复用，再跨会话沉淀为全局规则；Flash 连续 SAFE 判定也会自动学习。删除、凭据、远程/生产等危险类别仍然转人工。','Approved repeats are reused in this session and promoted across sessions; repeated Flash SAFE verdicts also learn automatically. Dangerous categories still ask you.')
+                    : T('你仍然可以开启自学习，让 Flash 连续 SAFE 的操作自动沉淀；跨会话晋升和签名毕业不受影响。','You can enable self-learning so repeated Flash SAFE operations are learned; cross-session promotion and graduation still work.')),
+              ),
+              React.createElement('div', { className: 'ag-onboard-actions' },
+                React.createElement('button', {
+                  type: 'button', className: 'ag-set-btn ag-btn-xs',
+                  onClick: function () { setViewTab('settings') },
+                }, T('去设置','Settings')),
+                React.createElement('button', {
+                  type: 'button', className: 'ag-set-btn ag-btn-xs ag-set-btn-primary',
+                  onClick: dismissOnboarding,
+                }, T('知道了','Got it')),
+              ),
+            )
+          : null,
         React.createElement('div', { className: 'ag-tabbar', role: 'tablist', 'aria-label': T('审批视图','Approval audit') },
           [['records', T('记录','Records')], ['settings', T('设置','Settings')]].map(function (t) {
             return React.createElement('button', {
@@ -1193,6 +1257,18 @@ window.__ModuleLoader__.load({
                           ),
                           React.createElement('span', { className: 'ag-project-meta' },
                             p.total + ' 条 · 自动 ' + p.auto + ' · 拒绝 ' + p.rejected + (p.shadow ? ' · Shadow ' + p.shadow : '')),
+                          React.createElement('span', { className: 'ag-project-trust' },
+                            p.path
+                              ? (projectTrusted(p.path)
+                                  ? React.createElement('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-tertiary)' } }, T('已信任','Trusted'))
+                                  : (p.approved > 0
+                                      ? React.createElement('button', {
+                                          type: 'button', className: 'ag-set-btn ag-btn-xs', title: T('以后项目内 edit/write 与已识别测试自动放行','Auto-approve edit/write and recognized tests in this project'),
+                                          onClick: function () { trustProject(p.path) },
+                                        }, T('信任','Trust'))
+                                      : null))
+                              : null,
+                          ),
                         )
                       }),
                     ),
@@ -1809,21 +1885,33 @@ window.__ModuleLoader__.load({
               React.createElement('span', { className: 'ag-set-stage' }, '⑥ 自动学习'),
               '会话记忆 · 晋升 · 毕业 · 自学习'),
             React.createElement('p', { className: 'ag-set-card-sub' },
-              '零点击学习参数：人工批准过的同操作本会话直放；同类累计后自动沉淀；自学习可直接从 Flash SAFE 判定毕业。信任目录与毕业进度在 ⑦ 规则库管理。')),
+              '零点击学习参数：人工批准过的同操作本会话直放；同类累计后跨会话晋升为全局规则；自学习会从 Flash SAFE 判定自动毕业。信任目录与毕业进度在 ⑦ 规则库管理。'),
+          React.createElement('div', { className: 'ag-learn-note' },
+            cfg.selfLearn !== false
+              ? '自学习已开启：Flash 连续 ' + (cfg.selfLearnThreshold || 3) + ' 次 SAFE（至少 ' + (cfg.selfLearnSessions || 1) + ' 个会话）后自动沉淀为全局规则；可随时关闭。'
+              : '自学习当前关闭：会话记忆、跨会话晋升、签名毕业仍会基于你的人工批准工作。')),
           !cfg.onboarded
             ? React.createElement('div', { className: 'ag-alert' },
-                React.createElement('div', { className: 'ag-alert-title' }, '自动学习默认是保守的'),
+                React.createElement('div', { className: 'ag-alert-title' },
+                  cfg.selfLearn !== false ? '自动学习已开启（推荐）' : '自动学习已就绪'),
                 React.createElement('div', { className: 'ag-alert-text' },
-                  '会话记忆 / 跨会话晋升 / 签名毕业已默认开启（都基于你的人工批准）；自学习默认关闭（会从 Flash 判定自学）。可以保持推荐，也可以现在开启更激进的自学习。'),
+                  cfg.selfLearn !== false
+                    ? '自学习、会话记忆、跨会话晋升默认开启。你不需要先配置：正常批准几次，规则会自动沉淀并在不同会话间复用；危险类别仍转人工。'
+                    : '会话记忆与跨会话晋升已开启；自学习当前关闭。可以现在开启，让 Flash SAFE 的同类操作也自动沉淀。'),
                 React.createElement('div', { className: 'ag-set-row' },
                   React.createElement('button', {
-                    type: 'button', className: 'ag-set-btn ag-btn-xs',
+                    type: 'button', className: 'ag-set-btn ag-btn-xs ag-set-btn-primary',
                     onClick: function () { api({ op: 'set', kind: 'onboarded', value: true }) },
-                  }, '保持推荐（保守）'),
-                  React.createElement('button', {
-                    type: 'button', className: 'ag-set-btn ag-btn-xs',
-                    onClick: function () { api({ op: 'set', kind: 'selfLearn', value: true }); api({ op: 'set', kind: 'onboarded', value: true }) },
-                  }, '开启自学习（激进）'),
+                  }, '知道了，开始使用'),
+                  cfg.selfLearn === false
+                    ? React.createElement('button', {
+                        type: 'button', className: 'ag-set-btn ag-btn-xs',
+                        onClick: function () { api({ op: 'set', kind: 'selfLearn', value: true }); api({ op: 'set', kind: 'onboarded', value: true }) },
+                      }, '开启自学习')
+                    : React.createElement('button', {
+                        type: 'button', className: 'ag-set-btn ag-btn-xs',
+                        onClick: function () { api({ op: 'set', kind: 'selfLearn', value: false }); api({ op: 'set', kind: 'onboarded', value: true }) },
+                      }, '暂时关闭自学习'),
                 ),
               )
             : null,

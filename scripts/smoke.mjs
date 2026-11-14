@@ -22,7 +22,7 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
 assert.ok(client.includes('function T(zh, en)'), 'client has i18n helper')
-for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任']) {
+for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任', '知道了，开始使用', '自学习已开启', '以后项目内']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
 
@@ -86,6 +86,15 @@ const callApi = async (path, method, body) => {
   await handler(req, res)
   return { status, text, json: text ? JSON.parse(text) : null }
 }
+
+const initialRules = await callApi('/api/auto-approve/rules', 'GET')
+assert.equal(initialRules.status, 200, 'rules endpoint during onboarding test')
+assert.equal(initialRules.json.config.selfLearn, true, 'self-learning defaults on for a fresh config')
+assert.equal(initialRules.json.config.selfLearnThreshold, 3, 'default self-learning threshold')
+assert.equal(initialRules.json.config.selfLearnSessions, 1, 'default self-learning sessions')
+const onboard = await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'onboarded', value: true })
+assert.equal(onboard.status, 200, 'onboarding dismissal accepted')
+assert.equal((await callApi('/api/auto-approve/rules', 'GET')).json.config.onboarded, true, 'onboarding dismissal persists')
 
 let nextCalls = 0
 const nextAllowed = async () => { nextCalls += 1; return 'allowed-once' }
