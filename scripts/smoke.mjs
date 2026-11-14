@@ -343,6 +343,11 @@ assert.ok(group, 'shadow suggestions groups same command')
 assert.ok(group.count >= 2, 'shadow suggestions counts candidates')
 assert.equal(group.suggestion && group.suggestion.commandPattern, 'npm test', 'shadow suggestion is command-aware')
 assert.equal(group.suggestion && group.suggestion.cwdPrefix, cwd, 'shadow suggestion scopes cwd')
+const addSuggestion = await callApi('/api/auto-approve/rules', 'POST', { op: 'add', kind: 'allowRules', value: group.suggestion })
+assert.equal(addSuggestion.status, 200, 'shadow suggestion can be added as a rule')
+assert.ok(addSuggestion.json.ok, 'shadow suggestion rule accepted')
+const addedRule = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules.find((r) => r.commandPattern === 'npm test' && r.cwdPrefix === cwd)
+assert.ok(addedRule, 'shadow suggestion rule persists')
 
 // 项目统计：按 cwd 聚合；历史无 cwd 归入“未知目录”。
 appendFileSync(eventsPath, JSON.stringify({ id: 9999, ts: Date.now(), tool: 'old', mode: 'workspace-write', verdict: 'rule', kind: 'auto' }) + '\n')
