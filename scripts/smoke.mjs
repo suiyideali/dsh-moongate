@@ -25,6 +25,7 @@ assert.ok(client.includes('function T(zh, en)'), 'client has i18n helper')
 for (const marker of ['记住这次操作', '取消记住', '⑥ 规则库', '学习与沉淀', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任', '知道了，开始使用', '自学习已开启', '以后项目内', 'ag-set-collapsed']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
+assert.ok(client.includes("className: 'ag-set', onClick: toggleSettingCard"), 'settings root wires collapse handler')
 assert.ok(!client.includes("slots.inject('settings.section'"), 'settings section entry removed')
 
 // Shadow 模式行为：开启时只记录候选并转人工，不写规则命中；关闭时恢复正常自动放行。

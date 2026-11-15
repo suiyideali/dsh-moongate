@@ -349,7 +349,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 
 **Where is learning data?** `~/.dsh/auto-approve/`; reinstalling the plugin does not delete it. Back it up before DSH upgrades.
 
-**How do I trust a directory?** Add it in ⑤ or ⑥ (for example `~/src`); it bypasses prompts but not DENY/hard-risk rules.
+**How do I trust a directory?** Add it in ⑥ (for example `~/src`); it bypasses prompts but not DENY/hard-risk rules.
 
 **Why is the approval view empty?** No sandbox escalations yet, or the session is not on the auto-approve preset.
 

@@ -1666,14 +1666,14 @@ window.__ModuleLoader__.load({
         )
       }
 
-      return React.createElement('div', { className: 'ag-set' },
+      return React.createElement('div', { className: 'ag-set', onClick: toggleSettingCard, onKeyDown: toggleSettingCard },
         React.createElement('h3', { className: 'ag-set-title' }, '自动审批'),
         React.createElement('p', { className: 'ag-set-intro' },
           '管理自动审批的放行与阻塞规则：查看当前判定管道、黑/白名单与学习进度，可自行添加规则（如把 edit 加入白名单后自动放行）或终止错误的学习。修改即时生效（热更新）。'),
 
         // ---- 初始化卡片 ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.setup ? ' ag-set-collapsed' : ''), id: idPrefix + 'setup' },
-          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0 },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.setup },
             React.createElement('div', { className: 'ag-set-card-title' }, '初始化权限预设'),
             React.createElement('p', { className: 'ag-set-card-sub' },
               '安装后需在 profile 的 cordis.patch.yml 添加 auto-approve 权限预设（预设表在配置构造时冻结，无法自动扩展）。' +
@@ -1691,7 +1691,7 @@ window.__ModuleLoader__.load({
 
         // ---- 管道总览 ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.pipeline ? ' ag-set-collapsed' : ''), id: idPrefix + 'pipeline' },
-          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0 },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.pipeline },
             React.createElement('div', { className: 'ag-set-card-title' }, '当前判定管道'),
             React.createElement('p', { className: 'ag-set-card-sub' },
               '每次沙箱越界按下述链路判定，下面的配置卡片按管道顺序排列：')),
@@ -1705,7 +1705,7 @@ window.__ModuleLoader__.load({
 
         // ---- 黑名单（denyKeywords） ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.deny ? ' ag-set-collapsed' : ''), id: idPrefix + 'deny' },
-          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0 },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.deny },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '① DENY 层'),
               '黑名单 · 不可逆危险词'),
@@ -1744,7 +1744,7 @@ window.__ModuleLoader__.load({
 
         // ---- 白名单（allowRules） ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.allow ? ' ag-set-collapsed' : ''), id: idPrefix + 'allow' },
-          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0 },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.allow },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '② 白名单层'),
               '白名单 · 自动放行规则'),
@@ -1788,7 +1788,7 @@ window.__ModuleLoader__.load({
 
         // ---- 永久人工（denyRules） ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.denyrules ? ' ag-set-collapsed' : ''), id: idPrefix + 'denyrules' },
-          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0 },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.denyrules },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '③ denyRules 层'),
               '永久人工 · 拒绝升级规则'),
@@ -1818,7 +1818,7 @@ window.__ModuleLoader__.load({
 
         // ---- 阈值 / 超时（④ Flash 判定参数） ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.flash ? ' ag-set-collapsed' : ''), id: idPrefix + 'flash' },
-          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0 },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.flash },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '④ Flash 判定'),
               '判定超时'),
@@ -1839,7 +1839,7 @@ window.__ModuleLoader__.load({
 
         // ---- Shadow 模式（观察期：只记录本可自动放行的候选，不真正放行） ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.shadow ? ' ag-set-collapsed' : ''), id: idPrefix + 'shadow' },
-          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0 },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.shadow },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, 'Shadow'),
               '观察模式'),
@@ -1878,7 +1878,7 @@ window.__ModuleLoader__.load({
 
         // ---- 自动学习（⑤ 会话记忆 / 晋升 / 毕业 / 自学习） ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.learning ? ' ag-set-collapsed' : ''), id: idPrefix + 'learning' },
-          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0 },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.learning },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '⑤ 学习与沉淀'),
               '人工确认 · 会话记忆 · 晋升 · 毕业 · 自学习'),
@@ -1986,7 +1986,7 @@ window.__ModuleLoader__.load({
 
         // ---- 规则库（⑥ 统一管理） ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.library ? ' ag-set-collapsed' : ''), id: idPrefix + 'library' },
-          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0 },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.library },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '⑥ 规则库'),
               '统一管理 · 白名单 / 永久人工 / 信任目录 / 毕业进度'),
