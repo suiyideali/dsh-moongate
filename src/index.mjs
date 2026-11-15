@@ -1369,7 +1369,11 @@ function commandIntent(toolName, argsText, sessionCwd) {
       const remoteSub = String(rest[1] || '').toLowerCase()
       if (remoteSub && remoteSub !== '-v' && !['show', 'get-url'].includes(remoteSub)) return null
     }
-    if (sub === 'grep' && (shortHas('O') || longPrefix(['--open-files-in-pager']))) return null
+    if (sub === 'grep' && (shortHas('O') || shortHas('f') || longPrefix(['--open-files-in-pager', '--file']))) return null
+    // blame 的 --contents / --ignore-revs-file / -S 会读取 cwd 外文件。
+    if (sub === 'blame' && (shortHas('S') || longPrefix(['--contents', '--ignore-revs-file']))) return null
+    // ls-files 的 -X / --exclude-from 会读取 cwd 外文件。
+    if (sub === 'ls-files' && (shortHas('X') || longPrefix(['--exclude-from']))) return null
     if (sub === 'stash' && !['list', 'show'].includes(String(rest[1] || '').toLowerCase())) return null
     if (sub === 'worktree' && String(rest[1] || '').toLowerCase() !== 'list') return null
     if (sub === 'tag' && rest.length > 1 && !hasFlag(/^(?:-l|--list)$/)) return null
