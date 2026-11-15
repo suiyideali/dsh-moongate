@@ -328,9 +328,11 @@ window.__ModuleLoader__.load({
       learned: '沉淀规则',
       fpHit: '已确认操作',
       'flash-same': 'Flash 同类验证',
+      readonly: T('只读命令','Read-only command'),
+      'project-trust': T('项目信任','Project trust'),
       'shadow-candidate': T('Shadow 候选','Shadow candidates')
     }
-    const VERDICT_NEUTRAL = new Set(['rule', 'learned', 'fpHit', 'flash-same'])
+    const VERDICT_NEUTRAL = new Set(['rule', 'learned', 'fpHit', 'flash-same', 'readonly', 'project-trust'])
     const SHADOW_PATH_LABELS = {
       trust: '信任目录',
       'session-memory': '会话记忆',
@@ -339,7 +341,9 @@ window.__ModuleLoader__.load({
       learned: '沉淀规则',
       fpHit: '已确认操作',
       'flash-same': '同类验证',
-      semantic: '语义复用'
+      semantic: '语义复用',
+      'project-trust': T('项目信任','Project trust'),
+      readonly: T('只读命令','Read-only command')
     }
     const HARD_CATEGORIES = new Set(['deletion', 'credential', 'remote', 'system', 'bulk'])
 
@@ -1337,6 +1341,7 @@ window.__ModuleLoader__.load({
       const [timeoutMs, setTimeoutMs] = React.useState('20000')
       const [newTrustRoot, setNewTrustRoot] = React.useState('')
       const [newLibTrustRoot, setNewLibTrustRoot] = React.useState('')
+      const [newLibProjectRoot, setNewLibProjectRoot] = React.useState('')
       const [editingRule, setEditingRule] = React.useState(null)
       const [editError, setEditError] = React.useState('')
       const [stage1Provider, setStage1Provider] = React.useState('')
@@ -1409,6 +1414,7 @@ window.__ModuleLoader__.load({
             allowRules: (snapshot && snapshot.config && snapshot.config.allowRules) || [],
             denyRules: (snapshot && snapshot.config && snapshot.config.denyRules) || [],
             trustRoots: (snapshot && snapshot.config && snapshot.config.trustRoots) || [],
+            projectTrust: (snapshot && snapshot.config && snapshot.config.projectTrust) || [],
             graduation: (snapshot && snapshot.graduation) || [],
           }
           const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -1872,7 +1878,7 @@ window.__ModuleLoader__.load({
               '查看所有生效规则的来源、命中与状态；支持搜索、启停、删除、导出与证据。')),
           React.createElement('div', { className: 'ag-set-toolbar' },
             React.createElement('div', { className: 'ag-set-seg' },
-              [['allow', '白名单', (cfg.allowRules || []).length], ['deny', '永久人工', (cfg.denyRules || []).length], ['trust', '信任目录', (cfg.trustRoots || []).length], ['graduation', '毕业进度', (snapshot.graduation || []).length]].map(function (tab) {
+              [['allow', '白名单', (cfg.allowRules || []).length], ['deny', '永久人工', (cfg.denyRules || []).length], ['trust', '信任目录', (cfg.trustRoots || []).length + (cfg.projectTrust || []).length], ['graduation', '毕业进度', (snapshot.graduation || []).length]].map(function (tab) {
                 return React.createElement('button', {
                   type: 'button', key: tab[0],
                   className: 'ag-set-seg-btn' + (libTab === tab[0] ? ' ag-set-seg-active' : ''),
@@ -1981,7 +1987,31 @@ window.__ModuleLoader__.load({
                     return ruleItem('lib-t-' + idx, root, '范围内的操作直接放行', [],
                       [React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '移除', 'aria-label': '移除信任目录', onClick: function () { api({ op: 'remove', kind: 'trustRoots', value: root }) } }, '✕')])
                   }))
-              return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } }, addRow, list)
+              const proots = (cfg.projectTrust || []).filter(function (r) { return hit(r) })
+              const projectAddRow = React.createElement('div', { className: 'ag-set-row' },
+                React.createElement('input', {
+                  className: 'ag-set-input', style: { flex: '1 1 240px' }, placeholder: '项目根目录，如 ~/src/my-project', value: newLibProjectRoot,
+                  onChange: function (e) { setNewLibProjectRoot(e.target.value) },
+                  onKeyDown: function (e) { if (e.key === 'Enter' && newLibProjectRoot.trim()) { api({ op: 'add', kind: 'projectTrust', value: newLibProjectRoot.trim() }); setNewLibProjectRoot('') } },
+                }),
+                React.createElement('button', {
+                  type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy || !newLibProjectRoot.trim(),
+                  onClick: function () { api({ op: 'add', kind: 'projectTrust', value: newLibProjectRoot.trim() }); setNewLibProjectRoot('') },
+                }, '添加'),
+              )
+              const projectList = proots.length === 0
+                ? empty('没有项目信任；添加后仅该目录内的 edit/write 与 test/build 自动放行')
+                : React.createElement('div', { className: 'ag-set-list' }, proots.map(function (root, idx) {
+                    return ruleItem('lib-p-' + idx, root, '仅 edit/write + 已识别 test/build；push/网络/删除仍人工', [],
+                      [React.createElement('button', { key: 'd', type: 'button', className: 'ag-set-item-del ag-icon-btn', title: '移除', 'aria-label': '移除项目信任', onClick: function () { api({ op: 'remove', kind: 'projectTrust', value: root }) } }, '✕')])
+                  }))
+              return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
+                React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+                  React.createElement('div', { className: 'ag-set-card-sub' }, '全局信任目录：范围内的所有操作直接放行（含 push/网络，风险更高）。'),
+                  addRow, list),
+                React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+                  React.createElement('div', { className: 'ag-set-card-sub' }, '项目信任：只放行该目录内的 edit/write 和已识别的 test/build 命令；push、网络、删除仍需人工。'),
+                  projectAddRow, projectList))
             }
             const gs = (snapshot.graduation || []).filter(function (g) { return hit(g.signature + ' ' + (g.tool || '') + ' ' + (g.mode || '')) })
             if (gs.length === 0) return empty('没有匹配的毕业进度')

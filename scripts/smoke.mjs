@@ -1,7 +1,7 @@
 // Smoke tests for the dsh-approval-gate fork.
 // Runs without DSH: uses a temporary DSH_HOME so the plugin's top-level
 // config initialization cannot touch the real profile.
-import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, appendFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, appendFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
@@ -22,7 +22,7 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
 assert.ok(client.includes('function T(zh, en)'), 'client has i18n helper')
-for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit']) {
+for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
 
@@ -89,6 +89,13 @@ const callApi = async (path, method, body) => {
 
 let nextCalls = 0
 const nextAllowed = async () => { nextCalls += 1; return 'allowed-once' }
+const expectManualBash = async (sid, callId, command, label) => {
+  feedToolCall(sid, callId, command)
+  nextCalls = 0
+  const out = await approval(bashRequest(sid, callId, command), nextAllowed)
+  assert.equal(out, 'allowed-once')
+  assert.equal(nextCalls, 1, label)
+}
 const request = {
   agent: { session: { id: 'shadow-test', cwd } },
   toolName: 'write',
@@ -227,6 +234,262 @@ const feedToolCall = (sid, callId, command) => sessionEvent(
   { id: sid },
   { type: 'tool/call', data: { callId, name: 'bash', arguments: JSON.stringify({ command }) } }
 )
+const feedToolCallTool = (sid, callId, name, args) => sessionEvent(
+  { id: sid },
+  { type: 'tool/call', data: { callId, name, arguments: JSON.stringify(args) } }
+)
+
+// 只读符号链接：软链指向 cwd 外时必须转人工。
+const readonlyOutside = join(process.env.DSH_HOME, 'readonly-outside.txt')
+writeFileSync(readonlyOutside, 'secret\n', 'utf8')
+const readonlyLinkFile = join(cwd, 'link-read.txt')
+if (!existsSync(readonlyLinkFile)) symlinkSync(readonlyOutside, readonlyLinkFile)
+const readonlyLinkDir = join(cwd, 'link-dir')
+if (!existsSync(readonlyLinkDir)) symlinkSync(process.env.DSH_HOME, readonlyLinkDir)
+const readonlySubDir = join(cwd, 'real-sub')
+mkdirSync(readonlySubDir, { recursive: true })
+const readonlySubLink = join(cwd, 'sub-link')
+if (!existsSync(readonlySubLink)) symlinkSync(readonlySubDir, readonlySubLink)
+
+// 只读快速路径：git status 这类严格只读命令首次安装即可自动放行；sed -i / 越界路径仍转人工。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  riskyThreshold: 1,
+  semanticReuse: false,
+  shadow: false,
+  sessionMemory: false,
+  allowRules: []
+}), 'utf8')
+flashReply = 'RISKY:neutral'
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-1', 'git status --short')
+const readonlyOut = await approval(bashRequest('readonly-test', 'call-readonly-1', 'git status --short'), nextAllowed)
+assert.equal(readonlyOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'strict read-only command auto-allows without human')
+const readonlyAuto = readEvents().filter((ev) => ev.kind === 'auto' && ev.path === 'readonly').pop()
+assert.ok(readonlyAuto, 'read-only auto event recorded')
+assert.equal(readonlyAuto.verdict, 'readonly')
+assert.equal(readonlyAuto.cwd, cwd)
+assert.deepEqual(readonlyAuto.files, [], 'read-only event does not snapshot files')
+
+// 显式永久人工规则优先于只读快速路径。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  shadow: false,
+  denyRules: [{ tool: 'bash', category: 'neutral', commandPattern: 'git status' }],
+  allowRules: []
+}), 'utf8')
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-deny', 'git status --short')
+const readonlyDenyOut = await approval(bashRequest('readonly-test', 'call-readonly-deny', 'git status --short'), nextAllowed)
+assert.equal(readonlyDenyOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'explicit deny rule beats read-only fast path')
+
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  shadow: false,
+  allowRules: []
+}), 'utf8')
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-2', 'sed -i s/a/b/ note.txt')
+const sedOut = await approval(bashRequest('readonly-test', 'call-readonly-2', 'sed -i s/a/b/ note.txt'), nextAllowed)
+assert.equal(sedOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'sed -i is not read-only and asks human')
+
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-3', 'cat /etc/passwd')
+const outsideOut = await approval(bashRequest('readonly-test', 'call-readonly-3', 'cat /etc/passwd'), nextAllowed)
+assert.equal(outsideOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'read outside cwd asks human')
+
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-4', 'ls ..')
+const parentOut = await approval(bashRequest('readonly-test', 'call-readonly-4', 'ls ..'), nextAllowed)
+assert.equal(parentOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'parent directory listing asks human')
+
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-5', 'cat $HOME/.ssh/id_rsa')
+const varOut = await approval(bashRequest('readonly-test', 'call-readonly-5', 'cat $HOME/.ssh/id_rsa'), nextAllowed)
+assert.equal(varOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'shell variable expansion asks human')
+
+// 只读解析器绕过：执行外部程序 / 原地写 / 外部 config；都必须转人工。
+await expectManualBash('readonly-test', 'call-readonly-pre', 'rg --pre=/tmp/evil foo', 'rg --pre must ask human')
+await expectManualBash('readonly-test', 'call-readonly-pager', 'git grep -O --open-files-in-pager="touch /tmp/x" foo', 'git grep pager must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sort', 'sort --compress-program=/tmp/evil f', 'sort compress-program must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sed', 'sed -ni s/a/b/ f', 'combined sed -ni must ask human')
+await expectManualBash('readonly-test', 'call-readonly-cfg', 'git config -e', 'git config -e must ask human')
+await expectManualBash('readonly-test', 'call-readonly-remote', 'git remote set-branches origin main', 'git remote set-branches must ask human')
+await expectManualBash('readonly-test', 'call-readonly-upstream', 'git branch --set-upstream-to=origin/main', 'git branch set-upstream must ask human')
+await expectManualBash('readonly-test', 'call-readonly-upstreamabbr', 'git branch --set-upstream-t=origin/main', 'git branch set-upstream abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-unsetup', 'git branch --unset-up', 'git branch unset-upstream abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-editd', 'git branch --edit-d', 'git branch edit-description abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-cd', 'cd /etc && cat passwd', 'cd outside session cwd must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitO', "git grep -O'touch /tmp/x' needle", 'git grep attached -O must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitnO', "git grep -nO'touch /tmp/x' needle", 'git grep combined -O must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitopen', "git grep --open='touch /tmp/x' needle", 'git grep --open abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitopenf', "git grep --open-files='touch /tmp/x' needle", 'git grep --open-files abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitgrepf', 'git grep -f /etc/passwd', 'git grep -f must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitgrepfile', 'git grep --file=/etc/passwd', 'git grep --file must ask human')
+await expectManualBash('readonly-test', 'call-readonly-blamecontents', 'git blame --contents=/etc/passwd a.txt', 'git blame --contents must ask human')
+await expectManualBash('readonly-test', 'call-readonly-blameignore', 'git blame --ignore-revs-file=/etc/passwd a.txt', 'git blame --ignore-revs-file must ask human')
+await expectManualBash('readonly-test', 'call-readonly-blameS', 'git blame -S /etc/passwd a.txt', 'git blame -S must ask human')
+await expectManualBash('readonly-test', 'call-readonly-lsfilesX', 'git ls-files -X /etc/passwd', 'git ls-files -X must ask human')
+await expectManualBash('readonly-test', 'call-readonly-lsfilesexclude', 'git ls-files --exclude-from=/etc/passwd', 'git ls-files --exclude-from must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitop', "git grep --op='touch /tmp/x' needle", 'git grep shortest --op abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitope', "git grep --ope='touch /tmp/x' needle", 'git grep shortest --ope abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedf', 'sed -n -f x.pat note.txt', 'sed -f script file must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedfile', 'sed -n --file=x.pat note.txt', 'sed --file script must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedinp', 'sed -n --in-p=s/a/b/ note.txt', 'sed --in-p abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedexp', "sed -n --exp='s/a/b/w out' note.txt", 'sed --exp abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedi1', 'sed -n --i=s/a/b/ note.txt', 'sed shortest --i abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sede1', "sed -n --e='s/a/b/w out' note.txt", 'sed shortest --e abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedfi1', 'sed -n --fi=x.pat note.txt', 'sed shortest --fi abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sorto', 'sort -ro out.txt f', 'sort attached -o must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sortT', 'sort -T/tmp f', 'sort attached -T must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sortout', 'sort --out=out.txt f', 'sort --out abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sortcomp', 'sort --comp=./x f', 'sort --comp abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sorto1', 'sort --o=out.txt f', 'sort shortest --o abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sortcom1', 'sort --com=./x f', 'sort shortest --com abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-grepp', 'grep -f/etc/passwd pattern', 'grep attached -f must ask human')
+await expectManualBash('readonly-test', 'call-readonly-link', 'cat link-read.txt', 'read-only symlink escape must ask human')
+await expectManualBash('readonly-test', 'call-readonly-linkdir', 'cd link-dir && cat readonly-outside.txt', 'cd symlink outside must ask human')
+
+// 软链 cwd 指向会话内部时，不存在的参数路径不应被误判为越界。
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-sublink', "cd sub-link && sed -n 's/a/b/p' note.txt")
+const subLinkOut = await approval(bashRequest('readonly-test', 'call-readonly-sublink', "cd sub-link && sed -n 's/a/b/p' note.txt"), nextAllowed)
+assert.equal(subLinkOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'symlinked cwd inside session still allows safe sed')
+
+// 项目信任：只放行项目内的 edit/write 和已识别 test/build；push 仍转人工。
+const projectRoot = join(process.env.DSH_HOME, 'trusted-project')
+mkdirSync(projectRoot, { recursive: true })
+const projectFile = join(projectRoot, 'a.js')
+writeFileSync(projectFile, 'const a = 1\n', 'utf8')
+const outsideFile = join(process.env.DSH_HOME, 'outside-secret.txt')
+writeFileSync(outsideFile, 'secret\n', 'utf8')
+const projectLink = join(projectRoot, 'link.txt')
+symlinkSync(outsideFile, projectLink)
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  riskyThreshold: 1,
+  semanticReuse: false,
+  shadow: false,
+  sessionMemory: false,
+  allowRules: []
+}), 'utf8')
+const addProject = await callApi('/api/auto-approve/rules', 'POST', { op: 'add', kind: 'projectTrust', value: projectRoot })
+assert.equal(addProject.status, 200)
+assert.equal(addProject.json.ok, true)
+const projectSnap = await callApi('/api/auto-approve/rules', 'GET')
+assert.ok((projectSnap.json.config.projectTrust || []).includes(projectRoot), 'project trust persisted')
+
+feedToolCallTool('project-test', 'call-project-edit', 'edit', { path: projectFile, old_string: '1', new_string: '2' })
+nextCalls = 0
+const projectEditOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'edit',
+  callId: 'call-project-edit',
+  reason: 'escalate sandbox to danger-full-access: write ' + projectFile,
+}, nextAllowed)
+assert.equal(projectEditOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows edit inside root')
+
+feedToolCallTool('project-test', 'call-project-write', 'write', { path: projectFile, content: 'const a = 2\n' })
+nextCalls = 0
+const projectWriteOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'write',
+  callId: 'call-project-write',
+  reason: 'escalate sandbox to danger-full-access: write ' + projectFile,
+}, nextAllowed)
+assert.equal(projectWriteOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows write inside root')
+const projectEditEvent = readEvents().filter((ev) => ev.kind === 'auto' && ev.path === 'project-trust').pop()
+assert.ok(projectEditEvent, 'project trust auto event recorded')
+assert.equal(projectEditEvent.projectRoot, projectRoot, 'project trust records root')
+
+nextCalls = 0
+feedToolCall('project-test', 'call-project-bash', 'cd ' + projectRoot + ' && npm test')
+const projectBashOut = await approval(bashRequest('project-test', 'call-project-bash', 'cd ' + projectRoot + ' && npm test'), nextAllowed)
+assert.equal(projectBashOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows recognized test command inside root')
+
+nextCalls = 0
+feedToolCall('project-test', 'call-project-go', 'cd ' + projectRoot + ' && go test ./...')
+const projectGoOut = await approval(bashRequest('project-test', 'call-project-go', 'cd ' + projectRoot + ' && go test ./...'), nextAllowed)
+assert.equal(projectGoOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows go test inside root')
+
+nextCalls = 0
+feedToolCall('project-test', 'call-project-build', 'cd ' + projectRoot + ' && npm run build')
+const projectBuildOut = await approval(bashRequest('project-test', 'call-project-build', 'cd ' + projectRoot + ' && npm run build'), nextAllowed)
+assert.equal(projectBuildOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows npm run build inside root')
+
+// 项目信任不能被 --prefix / 环境变量 / -vettool / symlink / 缺失参数绕过。
+await expectManualBash('project-test', 'call-project-prefix', 'cd ' + projectRoot + ' && npm test --prefix /tmp', 'project trust must reject npm --prefix')
+await expectManualBash('project-test', 'call-project-env', 'cd ' + projectRoot + ' && GOFLAGS=-toolexec=/tmp/evil go test ./...', 'project trust must reject leading env')
+await expectManualBash('project-test', 'call-project-vettool', 'cd ' + projectRoot + ' && go vet -vettool=/tmp/evil ./...', 'project trust must reject go -vettool')
+await expectManualBash('project-test', 'call-project-vettool2', 'cd ' + projectRoot + ' && go vet --vettool=/tmp/evil ./...', 'project trust must reject go --vettool')
+await expectManualBash('project-test', 'call-project-overlay', 'cd ' + projectRoot + ' && go build -overlay=/tmp/evil.json ./...', 'project trust must reject go -overlay')
+await expectManualBash('project-test', 'call-project-cd-out', 'cd /tmp && npm test', 'project trust must reject cwd outside root')
+
+nextCalls = 0
+feedToolCall('project-test', 'call-project-push', 'git push')
+const projectPushOut = await approval(bashRequest('project-test', 'call-project-push', 'git push'), nextAllowed)
+assert.equal(projectPushOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'project trust does not auto-allow push')
+
+// symlink 越界、根外写入、缺失参数都必须转人工。
+feedToolCallTool('project-test', 'call-project-link', 'edit', { path: projectLink, old_string: 'secret', new_string: 'x' })
+nextCalls = 0
+const projectLinkOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'edit', callId: 'call-project-link',
+  reason: 'escalate sandbox to danger-full-access: write ' + projectLink,
+}, nextAllowed)
+assert.equal(projectLinkOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'project trust rejects symlink escape')
+
+feedToolCallTool('project-test', 'call-project-outside', 'write', { path: outsideFile, content: 'x' })
+nextCalls = 0
+const projectOutsideOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'write', callId: 'call-project-outside',
+  reason: 'escalate sandbox to danger-full-access: write ' + outsideFile,
+}, nextAllowed)
+assert.equal(projectOutsideOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'project trust rejects write outside root')
+
+feedToolCallTool('project-test', 'call-project-noargs', 'edit', {})
+nextCalls = 0
+const noargsTarget = join(projectRoot, 'noargs-unique-' + Date.now() + '.js')
+const projectNoArgsOut = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'edit', callId: 'call-project-noargs',
+  reason: 'escalate sandbox to danger-full-access: write ' + noargsTarget,
+}, nextAllowed)
+assert.equal(projectNoArgsOut, 'allowed-once')
+
+assert.equal(nextCalls, 1, 'project trust fails closed without args paths')
+
+const removeProject = await callApi('/api/auto-approve/rules', 'POST', { op: 'remove', kind: 'projectTrust', value: projectRoot })
+assert.equal(removeProject.status, 200)
+assert.equal(removeProject.json.ok, true)
+const afterRemoveTarget = join(projectRoot, 'after-remove-' + Date.now() + '.js')
+feedToolCallTool('project-test', 'call-project-edit-2', 'edit', { path: afterRemoveTarget, old_string: '2', new_string: '3' })
+nextCalls = 0
+const projectEditAgain = await approval({
+  agent: { session: { id: 'project-test', cwd } },
+  toolName: 'edit',
+  callId: 'call-project-edit-2',
+  reason: 'escalate sandbox to danger-full-access: write ' + afterRemoveTarget,
+}, nextAllowed)
+assert.equal(projectEditAgain, 'allowed-once')
+assert.equal(nextCalls, 1, 'removed project trust asks human again')
 
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,

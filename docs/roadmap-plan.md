@@ -121,3 +121,26 @@
 - 同命令同目录的两次候选聚合为一组，建议规则带 `commandPattern` 与 `cwdPrefix`。
 - 只有点击按钮才调用规则 API；端点本身无副作用。
 - `npm test` 覆盖分组、计数和建议字段。
+
+## 9. 首次使用：只读命令快速路径
+
+- 新增 `READ_ONLY_PROGRAMS` 白名单：`ls/pwd/echo/printf/cat/head/tail/wc/grep/rg/sed/stat/file/du/df/ps/date/which/type/sort/jq`。
+- `commandIntent` 对 `git`/`gh` 的只读子命令返回 `readOnly:true`；本地白名单命令要求有效 cwd、路径落在 cwd 内、无管道/重定向/命令替换；`sed` 必须 `-n` 且无 `-i`，`sort` 不得 `-o`。
+- 审批处理器在 DENY 之后、信任/规则/Flash 之前处理 `commandCtx.readOnly`：直接自动放行，事件 `verdict/path = readonly`，不写规则、学习、快照；Shadow 开启时只记录 `wouldPath:'readonly'` 候选。
+- 验收：`git status --short` 首次即自动放行；`sed -i`、`cat /etc/passwd` 等仍转人工；`npm publish` 不受影响。
+
+## 10. 项目级信任（项目内编辑/测试）
+
+**目标**：减少首次使用同一项目时的重复确认，但不把 push、网络、删除等不可逆操作自动放行。
+
+**配置**：`allowlist.json` 增加 `projectTrust: []`，存绝对项目根目录；最多 20 个。API 使用 `op:'add'/'remove', kind:'projectTrust'`。
+
+**判定**（在只读快速路径之后、全局 `trustRoots` 之前）：
+- `edit`/`write`：从 tool arguments 的 `path`/`file_path`/`files` 提取路径；所有路径必须落在同一信任根目录下。
+- `bash`：必须有 `commandCtx`（`commandIntent` 已识别）且 `commandCtx.cwd` 在信任根目录内；因此 `npm test`、`go test`、`npm run lint` 等可放行，`git push`、`curl`、`rm` 等没有 `commandCtx`，仍转人工。
+- 显式 `denyRules` 优先；Shadow 开启时只记录 `wouldPath:'project-trust'` 候选。
+- 自动放行事件 `path/verdict:'project-trust'`，带 `projectRoot`，不写规则/学习；edit/write 仍生成改动前快照。
+
+**UI**：⑦ 规则库 → 信任目录，分「全局信任目录」和「项目信任」两段；项目信任可添加/移除。
+
+**验收**：项目内 edit 自动放行；项目内 `npm test` 自动放行；`git push` 仍人工；移除信任后 edit 重新人工；`npm test` 覆盖 API 持久化与事件字段。
