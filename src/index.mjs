@@ -826,7 +826,6 @@ function normalizeConfig(raw) {
   cfg.denyEscalateTotal = Number.isFinite(cfg.denyEscalateTotal) && cfg.denyEscalateTotal > 0 ? cfg.denyEscalateTotal : 20
   cfg.stage1Provider = typeof cfg.stage1Provider === 'string' ? cfg.stage1Provider : ''
   cfg.stage1Model = typeof cfg.stage1Model === 'string' ? cfg.stage1Model : ''
-  // 默认开启自学习；显式 false 保持关闭（老用户/手动关闭不被覆盖）
   cfg.selfLearn = cfg.selfLearn === undefined ? true : cfg.selfLearn === true
   cfg.onboarded = cfg.onboarded === true
   cfg.selfLearnThreshold = Number.isFinite(cfg.selfLearnThreshold) && cfg.selfLearnThreshold > 0 ? cfg.selfLearnThreshold : 3
@@ -1022,9 +1021,9 @@ function recordSelfObservation(sessionId, toolName, mode, justification, eventId
   prev.events = (prev.events || []).concat(eventId === undefined ? [] : [eventId]).slice(-10)
   memoryStore.selfLearn[sig] = prev
   saveJson(MEMORY_PATH, memoryStore)
-  const threshold = config.selfLearnThreshold || 3
+  const threshold = config.selfLearnThreshold || 5
   const sessions = Object.keys(prev.sessions).length
-  if (prev.count >= threshold && sessions >= (config.selfLearnSessions || 1)) {
+  if (prev.count >= threshold && sessions >= (config.selfLearnSessions || 2)) {
     const exists = (config.allowRules || []).some((r) => r && r.signature === sig && (r.graduation || r.source === 'self-learned'))
     if (!exists) {
       const selfCount = (config.allowRules || []).filter((r) => r && r.source === 'self-learned').length
@@ -1034,7 +1033,7 @@ function recordSelfObservation(sessionId, toolName, mode, justification, eventId
       }
       const rule = {
         tool: toolName, signature: sig, source: 'self-learned',
-        description: `自学习：Flash 累计 SAFE ${prev.count} 次（${sessions} 个会话）`,
+        description: `自学习：Flash 连续 SAFE ${prev.count} 次（${sessions} 个会话）`,
         createdAt: Date.now(), hitCount: 0, evidenceEventIds: (prev.events || []).slice(-5),
       }
       if (mode) rule.mode = mode
@@ -1227,7 +1226,7 @@ const SAFE_GH_GROUPS = new Map([
   ['repo', new Set(['view'])],
   ['run', new Set(['view', 'list'])],
 ])
-const SAFE_PM_SCRIPTS = new Set(['test', 'lint', 'typecheck', 'check', 'format:check', 'test:unit', 'test:integration'])
+const SAFE_PM_SCRIPTS = new Set(['test', 'build', 'lint', 'typecheck', 'check', 'format:check', 'test:unit', 'test:integration'])
 // 只读命令白名单：仅用于“零点击快速路径”，不做学习沉淀。
 // 这些命令要么只读文件，要么只查询系统状态；路径必须落在本次命令的 cwd 内。
 const READ_ONLY_PROGRAMS = new Set([
@@ -1269,8 +1268,21 @@ function parseToolArgs(text) {
 
 function realPathForCheck(p) {
   const abs = String(p || '')
-  try { return realpathSync(abs) } catch {}
-  try { return join(realpathSync(dirname(abs)), basename(abs)) } catch { return abs }
+  if (!abs) return abs
+  // 解析最长的“已存在祖先”，再把不存在的剩余路径段拼回去。
+  // 这样 /var → /private/var 这类软链 cwd 下的不存在参数不会被词法路径误判。
+  let cur = abs
+  const tail = []
+  while (true) {
+    try {
+      const real = realpathSync(cur)
+      return tail.length ? join(real, ...tail) : real
+    } catch {}
+    const parent = dirname(cur)
+    if (parent === cur) return abs
+    tail.unshift(basename(cur))
+    cur = parent
+  }
 }
 
 function isPathWithin(cwd, prefix) {
@@ -1283,6 +1295,7 @@ function isPathWithin(cwd, prefix) {
 // 只读命令的路径必须全部落在命令 cwd 内；`~`、绝对路径和 `../` 越界一律不放行。
 // 注意：这里只做保守检查，命中不确定的参数就返回 false（宁可多问一次）。
 function localReadOnlyArgsWithin(rest, cwdScope) {
+  const realCwd = realPathForCheck(cwdScope)
   for (let token of rest) {
     if (!token) continue
     if (token.startsWith('-')) {
@@ -1293,9 +1306,9 @@ function localReadOnlyArgsWithin(rest, cwdScope) {
     }
     // `..` / `../x` 即使没有绝对路径也越界
     if (token === '..' || token.startsWith('../')) return false
-    if (!/[\/~]/.test(token)) continue
+    // 所有位置参数都按路径做真实路径检查（宁可多问，也不让软链读出 cwd 外内容）
     const abs = resolveAbsPath(token, cwdScope)
-    if (!isPathWithin(abs, cwdScope)) return false
+    if (!isPathWithin(realPathForCheck(abs), realCwd)) return false
   }
   return true
 }
@@ -1333,26 +1346,38 @@ function commandIntent(toolName, argsText, sessionCwd) {
   const rest = tokens.slice(1)
   const flags = rest.filter((t) => t.startsWith('-'))
   const hasFlag = (re) => flags.some((f) => re.test(f))
+  const shortHas = (letters) => flags.some((f) => /^-[^-]/.test(f) && f.slice(1).split('').some((ch) => letters.includes(ch)))
+  const longPrefix = (names) => flags.some((f) => {
+    const name = String(f).split('=')[0]
+    return name.length > 2 && name.startsWith('--') && names.some((n) => n.startsWith(name))
+  })
   // 任何可能把输出写到文件 / 执行外部程序的旗标都不学习
   if (hasFlag(/^(?:-o|--output(?:=.*)?|--ext-diff|--textconv|--write|--pre(?:=.*)?)$/)) return null
   const cwdScope = cwd.replace(/\/+$/, '') || '/'
+  const readOnlyCwdSafe = isPathWithin(realPathForCheck(cwdScope), realPathForCheck(String(sessionCwd || '').trim()))
 
   if (program === 'git') {
     const sub = String(rest[0] || '').toLowerCase()
     if (!SAFE_GIT_SUBS.has(sub)) return null
     // -C / --git-dir / --work-tree 会把操作指向 cwd 之外；--no-index 可读任意文件。
     if (hasFlag(/^(?:-C|--git-dir|--work-tree|--no-index)(?:=.*)?$/)) return null
-    if (['branch', 'tag'].includes(sub) && hasFlag(/^(?:-[dDmMf]|--delete|--move|--force|--edit|--set-upstream-to(?:=.*)?|--unset-upstream|--edit-description|-u)$/)) return null
+    if (['branch', 'tag'].includes(sub) && (hasFlag(/^(?:-[dDmMf]|-u)$/) ||
+        longPrefix(['--delete', '--move', '--force', '--edit', '--set-upstream-to', '--unset-upstream', '--edit-description']))) return null
     // `git branch <name>` 会创建分支；只允许纯列表/查询参数（不接收任何位置参数）
     if (sub === 'branch' && rest.length > 1 && rest.slice(1).some((t) => !t.startsWith('-'))) return null
     if (sub === 'remote') {
       const remoteSub = String(rest[1] || '').toLowerCase()
       if (remoteSub && remoteSub !== '-v' && !['show', 'get-url'].includes(remoteSub)) return null
     }
-    if (sub === 'grep' && hasFlag(/^(?:-O|--open-files-in-pager)(?:=.*)?$/)) return null
+    if (sub === 'grep' && (shortHas('O') || shortHas('f') || longPrefix(['--open-files-in-pager', '--file']))) return null
+    // blame 的 --contents / --ignore-revs-file / -S 会读取 cwd 外文件。
+    if (sub === 'blame' && (shortHas('S') || longPrefix(['--contents', '--ignore-revs-file']))) return null
+    // ls-files 的 -X / --exclude-from 会读取 cwd 外文件。
+    if (sub === 'ls-files' && (shortHas('X') || longPrefix(['--exclude-from']))) return null
     if (sub === 'stash' && !['list', 'show'].includes(String(rest[1] || '').toLowerCase())) return null
     if (sub === 'worktree' && String(rest[1] || '').toLowerCase() !== 'list') return null
     if (sub === 'tag' && rest.length > 1 && !hasFlag(/^(?:-l|--list)$/)) return null
+    if (!readOnlyCwdSafe) return null
     return { eligible: true, readOnly: true, pattern: `git ${sub}`, cwd: cwdScope, program: 'git' }
   }
 
@@ -1362,13 +1387,15 @@ function commandIntent(toolName, argsText, sessionCwd) {
     const allowed = SAFE_GH_GROUPS.get(group)
     if (!allowed || !allowed.has(sub)) return null
     if (group === 'pr' && sub === 'status') return null // 旧版 gh，避免不确定行为
+    if (!readOnlyCwdSafe) return null
     return { eligible: true, readOnly: true, pattern: `gh ${group} ${sub}`, cwd: cwdScope, program: 'gh' }
   }
 
   if (program === 'go') {
     const sub = String(rest[0] || '').toLowerCase()
     if (!['test', 'build', 'vet'].includes(sub)) return null
-    if (hasFlag(/^(?:-o|--output|-exec|--exec|-toolexec|--toolexec|-C|--dir|--overlay|-vettool)(?:=.*)?$/)) return null
+    if (hasFlag(/^(?:-o|--output|-exec|--exec|-toolexec|--toolexec|-C|--dir|--overlay|-vettool)(?:=.*)?$/) ||
+        flags.some((f) => /^(?:--?vettool|--?overlay)(?:=.*)?$/.test(f))) return null
     for (const token of rest) {
       if (token === '..' || token.startsWith('../')) return null
       if (token.startsWith('/') && !isPathWithin(token, cwdScope)) return null
@@ -1398,7 +1425,8 @@ function commandIntent(toolName, argsText, sessionCwd) {
   if (READ_ONLY_PROGRAMS.has(program)) {
     if (program === 'sed') {
       if (!hasFlag(/^-(?:n|quiet|silent)/)) return null
-      if (hasFlag(/^--in-place(?:=.*)?$/)) return null
+      if (longPrefix(['--in-place', '--expression', '--file'])) return null
+      if (shortHas('f')) return null
       // 组合短旗标：-ni / -ni.bak / -i 都含 i，拒绝原地写。
       if (flags.some((f) => /^-[^-]/.test(f) && f.slice(1).includes('i'))) return null
       for (const t of rest) {
@@ -1410,7 +1438,9 @@ function commandIntent(toolName, argsText, sessionCwd) {
       const script = rest.find((t) => !t.startsWith('-'))
       if (script && /[we]/.test(script)) return null
     }
-    if (program === 'sort' && hasFlag(/^(?:-o|--output|--compress-program|--temporary-directory|-T)(?:=.*)?$/)) return null
+    if (program === 'sort' && (shortHas('o') || shortHas('T') || longPrefix(['--output', '--compress-program', '--temporary-directory']))) return null
+    if (['grep', 'rg'].includes(program) && (shortHas('f') || longPrefix(['--file']))) return null
+    if (!readOnlyCwdSafe) return null
     if (!localReadOnlyArgsWithin(rest, cwdScope)) return null
     return { eligible: true, readOnly: true, pattern: `${program} read`, cwd: cwdScope, program }
   }
@@ -1498,7 +1528,7 @@ function ruleSuggestion(rule) {
   const c = String(rule && rule.contains || '')
   const hasPath = /[\/~]/.test(c)
   if (!rule.tool) return '补上 tool 限定（如 bash/edit），并把 contains 换成具体路径或文件名'
-  if (c && !hasPath) return '删除该规则，改为对具体操作点「记住」生成路径指纹；或在 ⑥ 规则库 → 信任目录 添加或配置 trustRoots 限定目录'
+  if (c && !hasPath) return '删除该规则，改为对具体操作点「记住」生成路径指纹；或在 ⑦ 规则库 → 信任目录 添加或配置 trustRoots 限定目录'
   if (rule.mode === 'danger-full-access' && !c) return '加 contains（具体路径）或改用 trustRoots'
   return '收窄条件（tool + mode + 具体路径/文件名）'
 }
@@ -2466,7 +2496,7 @@ export default {
         }
 
         // 显式“永久人工”规则优先于只读快速路径（Deny 永远不能被便捷路径绕过）。
-        // 这里先用无 category 的匹配覆盖通用/命令 deny 规则；带 category 的规则仍在 4d 复核。
+        // 这里忽略 category 做一次前置匹配，确保带 category 的显式 deny 规则也能拦截便捷路径。
         if (matchRule(config.denyRules, toolName, mode, null, justification, commandCtx, { ignoreCategory: true })) {
           audit(`DENYRULE ${toolName} mode=${mode || 'none'} → 人工`)
           return forwardToHuman(sessionId, toolName, mode, reason, justification, '', 'deny-rule')
@@ -2476,7 +2506,7 @@ export default {
         // 仅限白名单程序、无管道/重定向/命令替换、路径在本次 cwd 内；不写规则/学习/快照。
         if (commandCtx && commandCtx.readOnly) {
           // 只读命令不能借 cd 跳出会话工作区（cd /etc && cat passwd）。
-          if (!sessionCwd || !isPathWithin(commandCtx.cwd, sessionCwd)) {
+          if (!sessionCwd || !isPathWithin(realPathForCheck(commandCtx.cwd), realPathForCheck(sessionCwd))) {
             audit(`READONLY-OUTSIDE ${toolName} mode=${mode || 'none'} cwd=${commandCtx.cwd} → 人工`)
             return forwardToHuman(sessionId, toolName, mode, reason, justification, '', 'readonly-outside')
           }
@@ -2743,7 +2773,7 @@ export default {
     try {
       const w = scanOverbroadRules()
       const n = (w.allowRules || []).length + (w.trustRoots || []).length
-      if (n > 0) audit(`SCAN ${n} 条可能过宽的规则/信任目录（见设置页 ⑥ 规则库）`)
+      if (n > 0) audit(`SCAN ${n} 条可能过宽的规则/信任目录（见设置页 ⑦ 规则库）`)
     } catch (error) { /* 扫描失败不影响挂载 */ }
 
     console.log(`[${NAME}] v3 已挂载：DENY→白名单→denyRules→flash(SAFE/硬类别/中立计数${config.riskyThreshold})→裁决学习（配置: ${ALLOWLIST_PATH}）`)

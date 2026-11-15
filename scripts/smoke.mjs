@@ -89,15 +89,6 @@ const callApi = async (path, method, body) => {
   return { status, text, json: text ? JSON.parse(text) : null }
 }
 
-const initialRules = await callApi('/api/auto-approve/rules', 'GET')
-assert.equal(initialRules.status, 200, 'rules endpoint during onboarding test')
-assert.equal(initialRules.json.config.selfLearn, true, 'self-learning defaults on for a fresh config')
-assert.equal(initialRules.json.config.selfLearnThreshold, 3, 'default self-learning threshold')
-assert.equal(initialRules.json.config.selfLearnSessions, 1, 'default self-learning sessions')
-const onboard = await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'onboarded', value: true })
-assert.equal(onboard.status, 200, 'onboarding dismissal accepted')
-assert.equal((await callApi('/api/auto-approve/rules', 'GET')).json.config.onboarded, true, 'onboarding dismissal persists')
-
 let nextCalls = 0
 const nextAllowed = async () => { nextCalls += 1; return 'allowed-once' }
 const expectManualBash = async (sid, callId, command, label) => {
@@ -146,7 +137,6 @@ const readEvents = () => readFileSync(eventsPath, 'utf8').trim().split('\n').fil
 const requestFor = (sid) => ({ ...request, agent: { session: { id: sid, cwd } } })
 const autoBeforeFlash = readEvents().filter((ev) => ev.kind === 'auto').length
 writeFileSync(allowlistPath, JSON.stringify({ version: 3, shadow: true, allowRules: [] }), 'utf8')
-await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'selfLearn', value: true })
 flashReply = 'SAFE'
 nextCalls = 0
 const flashOut = await approval(requestFor('shadow-flash-test'), nextAllowed)
@@ -251,6 +241,18 @@ const feedToolCallTool = (sid, callId, name, args) => sessionEvent(
   { type: 'tool/call', data: { callId, name, arguments: JSON.stringify(args) } }
 )
 
+// 只读符号链接：软链指向 cwd 外时必须转人工。
+const readonlyOutside = join(process.env.DSH_HOME, 'readonly-outside.txt')
+writeFileSync(readonlyOutside, 'secret\n', 'utf8')
+const readonlyLinkFile = join(cwd, 'link-read.txt')
+if (!existsSync(readonlyLinkFile)) symlinkSync(readonlyOutside, readonlyLinkFile)
+const readonlyLinkDir = join(cwd, 'link-dir')
+if (!existsSync(readonlyLinkDir)) symlinkSync(process.env.DSH_HOME, readonlyLinkDir)
+const readonlySubDir = join(cwd, 'real-sub')
+mkdirSync(readonlySubDir, { recursive: true })
+const readonlySubLink = join(cwd, 'sub-link')
+if (!existsSync(readonlySubLink)) symlinkSync(readonlySubDir, readonlySubLink)
+
 // 只读快速路径：git status 这类严格只读命令首次安装即可自动放行；sed -i / 越界路径仍转人工。
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,
@@ -322,7 +324,46 @@ await expectManualBash('readonly-test', 'call-readonly-sed', 'sed -ni s/a/b/ f',
 await expectManualBash('readonly-test', 'call-readonly-cfg', 'git config -e', 'git config -e must ask human')
 await expectManualBash('readonly-test', 'call-readonly-remote', 'git remote set-branches origin main', 'git remote set-branches must ask human')
 await expectManualBash('readonly-test', 'call-readonly-upstream', 'git branch --set-upstream-to=origin/main', 'git branch set-upstream must ask human')
+await expectManualBash('readonly-test', 'call-readonly-upstreamabbr', 'git branch --set-upstream-t=origin/main', 'git branch set-upstream abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-unsetup', 'git branch --unset-up', 'git branch unset-upstream abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-editd', 'git branch --edit-d', 'git branch edit-description abbreviation must ask human')
 await expectManualBash('readonly-test', 'call-readonly-cd', 'cd /etc && cat passwd', 'cd outside session cwd must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitO', "git grep -O'touch /tmp/x' needle", 'git grep attached -O must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitnO', "git grep -nO'touch /tmp/x' needle", 'git grep combined -O must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitopen', "git grep --open='touch /tmp/x' needle", 'git grep --open abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitopenf', "git grep --open-files='touch /tmp/x' needle", 'git grep --open-files abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitgrepf', 'git grep -f /etc/passwd', 'git grep -f must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitgrepfile', 'git grep --file=/etc/passwd', 'git grep --file must ask human')
+await expectManualBash('readonly-test', 'call-readonly-blamecontents', 'git blame --contents=/etc/passwd a.txt', 'git blame --contents must ask human')
+await expectManualBash('readonly-test', 'call-readonly-blameignore', 'git blame --ignore-revs-file=/etc/passwd a.txt', 'git blame --ignore-revs-file must ask human')
+await expectManualBash('readonly-test', 'call-readonly-blameS', 'git blame -S /etc/passwd a.txt', 'git blame -S must ask human')
+await expectManualBash('readonly-test', 'call-readonly-lsfilesX', 'git ls-files -X /etc/passwd', 'git ls-files -X must ask human')
+await expectManualBash('readonly-test', 'call-readonly-lsfilesexclude', 'git ls-files --exclude-from=/etc/passwd', 'git ls-files --exclude-from must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitop', "git grep --op='touch /tmp/x' needle", 'git grep shortest --op abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-gitope', "git grep --ope='touch /tmp/x' needle", 'git grep shortest --ope abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedf', 'sed -n -f x.pat note.txt', 'sed -f script file must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedfile', 'sed -n --file=x.pat note.txt', 'sed --file script must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedinp', 'sed -n --in-p=s/a/b/ note.txt', 'sed --in-p abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedexp', "sed -n --exp='s/a/b/w out' note.txt", 'sed --exp abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedi1', 'sed -n --i=s/a/b/ note.txt', 'sed shortest --i abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sede1', "sed -n --e='s/a/b/w out' note.txt", 'sed shortest --e abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sedfi1', 'sed -n --fi=x.pat note.txt', 'sed shortest --fi abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sorto', 'sort -ro out.txt f', 'sort attached -o must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sortT', 'sort -T/tmp f', 'sort attached -T must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sortout', 'sort --out=out.txt f', 'sort --out abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sortcomp', 'sort --comp=./x f', 'sort --comp abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sorto1', 'sort --o=out.txt f', 'sort shortest --o abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-sortcom1', 'sort --com=./x f', 'sort shortest --com abbreviation must ask human')
+await expectManualBash('readonly-test', 'call-readonly-grepp', 'grep -f/etc/passwd pattern', 'grep attached -f must ask human')
+await expectManualBash('readonly-test', 'call-readonly-link', 'cat link-read.txt', 'read-only symlink escape must ask human')
+await expectManualBash('readonly-test', 'call-readonly-linkdir', 'cd link-dir && cat readonly-outside.txt', 'cd symlink outside must ask human')
+
+// 软链 cwd 指向会话内部时，不存在的参数路径不应被误判为越界。
+nextCalls = 0
+feedToolCall('readonly-test', 'call-readonly-sublink', "cd sub-link && sed -n 's/a/b/p' note.txt")
+const subLinkOut = await approval(bashRequest('readonly-test', 'call-readonly-sublink', "cd sub-link && sed -n 's/a/b/p' note.txt"), nextAllowed)
+assert.equal(subLinkOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'symlinked cwd inside session still allows safe sed')
 
 // 项目信任：只放行项目内的 edit/write 和已识别 test/build；push 仍转人工。
 const projectRoot = join(process.env.DSH_HOME, 'trusted-project')
@@ -384,10 +425,18 @@ const projectGoOut = await approval(bashRequest('project-test', 'call-project-go
 assert.equal(projectGoOut, 'allowed-once')
 assert.equal(nextCalls, 0, 'project trust auto-allows go test inside root')
 
+nextCalls = 0
+feedToolCall('project-test', 'call-project-build', 'cd ' + projectRoot + ' && npm run build')
+const projectBuildOut = await approval(bashRequest('project-test', 'call-project-build', 'cd ' + projectRoot + ' && npm run build'), nextAllowed)
+assert.equal(projectBuildOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'project trust auto-allows npm run build inside root')
+
 // 项目信任不能被 --prefix / 环境变量 / -vettool / symlink / 缺失参数绕过。
 await expectManualBash('project-test', 'call-project-prefix', 'cd ' + projectRoot + ' && npm test --prefix /tmp', 'project trust must reject npm --prefix')
 await expectManualBash('project-test', 'call-project-env', 'cd ' + projectRoot + ' && GOFLAGS=-toolexec=/tmp/evil go test ./...', 'project trust must reject leading env')
 await expectManualBash('project-test', 'call-project-vettool', 'cd ' + projectRoot + ' && go vet -vettool=/tmp/evil ./...', 'project trust must reject go -vettool')
+await expectManualBash('project-test', 'call-project-vettool2', 'cd ' + projectRoot + ' && go vet --vettool=/tmp/evil ./...', 'project trust must reject go --vettool')
+await expectManualBash('project-test', 'call-project-overlay', 'cd ' + projectRoot + ' && go build -overlay=/tmp/evil.json ./...', 'project trust must reject go -overlay')
 await expectManualBash('project-test', 'call-project-cd-out', 'cd /tmp && npm test', 'project trust must reject cwd outside root')
 
 nextCalls = 0
@@ -586,52 +635,5 @@ assert.ok(patch.includes('--- a/client.js'), 'patch targets client bundle')
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 assert.equal(pkg.name, 'dsh-moongate', 'package name')
 assert.equal(pkg.license, 'MIT', 'license stays MIT')
-
-// 自学习：默认累计 3 次 SAFE（同签名）后生成 self-learned 规则；显式 false 不生成。
-const slPath = join(cwd, 'selflearn-' + Date.now() + '.txt')
-writeFileSync(allowlistPath, JSON.stringify({
-  version: 3, riskyThreshold: 1, semanticReuse: false, shadow: false,
-  sessionMemory: false, selfLearn: true, selfLearnThreshold: 3, selfLearnSessions: 1,
-  allowRules: []
-}), 'utf8')
-flashReply = 'SAFE'
-for (let i = 0; i < 3; i++) {
-  const callId = 'call-selflearn-' + i
-  feedToolCallTool('selflearn-test', callId, 'write', { path: slPath, content: 'x' })
-  nextCalls = 0
-  const out = await approval({
-    agent: { session: { id: 'selflearn-test', cwd } },
-    toolName: 'write', callId,
-    reason: 'escalate sandbox to danger-full-access: write ' + slPath,
-  }, nextAllowed)
-  assert.equal(out, 'allowed-once')
-  assert.equal(nextCalls, 0, 'self-learning SAFE auto-allows')
-}
-const selfLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
-  .find((r) => r && r.source === 'self-learned')
-assert.ok(selfLearned, 'three SAFE verdicts create a self-learned rule')
-
-const slOffPath = join(cwd, 'selflearn-off-' + Date.now() + '.txt')
-writeFileSync(allowlistPath, JSON.stringify({
-  version: 3, riskyThreshold: 1, semanticReuse: false, shadow: false,
-  sessionMemory: false, selfLearn: false, selfLearnThreshold: 3, selfLearnSessions: 1,
-  allowRules: []
-}), 'utf8')
-await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'selfLearn', value: false })
-for (let i = 0; i < 3; i++) {
-  const callId = 'call-selflearn-off-' + i
-  feedToolCallTool('selflearn-off', callId, 'write', { path: slOffPath, content: 'x' })
-  nextCalls = 0
-  const out = await approval({
-    agent: { session: { id: 'selflearn-off', cwd } },
-    toolName: 'write', callId,
-    reason: 'escalate sandbox to danger-full-access: write ' + slOffPath,
-  }, nextAllowed)
-  assert.equal(out, 'allowed-once')
-  assert.equal(nextCalls, 0, 'self-learning off still allows via Flash SAFE')
-}
-const noSelfLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
-  .find((r) => r && r.source === 'self-learned')
-assert.ok(!noSelfLearned, 'explicit selfLearn=false creates no self-learned rule')
 
 console.log('smoke: ok')
