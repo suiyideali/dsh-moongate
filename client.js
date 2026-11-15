@@ -81,7 +81,7 @@ window.__ModuleLoader__.load({
 .ag-top-count{color:var(--dsw-alias-label-tertiary);text-align:right;font-variant-numeric:tabular-nums}
 .ag-project-panel{margin-top:2px}
 .ag-project-list{display:flex;flex-direction:column;gap:5px}
-.ag-project-row{display:grid;grid-template-columns:120px minmax(0,1fr) 96px 170px;align-items:center;gap:8px;min-width:0;font-size:11px;line-height:16px}
+.ag-project-row{display:grid;grid-template-columns:120px minmax(0,1fr) 96px 170px 64px;align-items:center;gap:8px;min-width:0;font-size:11px;line-height:16px}
 .ag-project-name{color:var(--dsw-alias-label-primary);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ag-project-path{color:var(--dsw-alias-label-tertiary);font-family:var(--ds-font-family-code);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ag-project-bar{height:6px;border-radius:3px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
@@ -171,6 +171,7 @@ window.__ModuleLoader__.load({
 .ag-set-card{padding:14px 16px;gap:14px}
 .ag-set-card-title{font-size:15px}
 .ag-set-group{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.ag-set-group-title{grid-column:1/-1;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary);margin:4px 0 2px}
 .ag-field{display:flex;flex-direction:column;gap:6px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:10px 12px;background:var(--dsw-alias-bg-layer-1);min-width:0}
 .ag-field-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);font-weight:500}
 .ag-field-control{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -211,6 +212,12 @@ window.__ModuleLoader__.load({
 .ag-search{width:200px}
 .ag-group{display:flex;flex-direction:column;gap:2px}
 .ag-group-label{font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption);padding:8px 10px 2px;position:sticky;top:0;background:var(--dsw-alias-bg-layer-1);z-index:1}
+.ag-onboard{display:flex;align-items:center;gap:14px;margin:10px 14px 0;padding:11px 13px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
+.ag-onboard-body{min-width:0}
+.ag-onboard-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:2px}
+.ag-onboard-text{font-size:12px;line-height:1.55;color:var(--dsw-alias-label-secondary)}
+.ag-onboard-actions{display:flex;gap:8px;margin-left:auto;flex:none}
+.ag-learn-note{margin:8px 0 10px;padding:8px 10px;border-radius:8px;background:var(--dsw-alias-bg-layer-1);font-size:12px;line-height:1.55;color:var(--dsw-alias-label-secondary)}
 .ag-tabbar{flex:none;display:flex;align-items:center;gap:4px;padding:6px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .ag-tab{border:none;background:transparent;height:28px;padding:0 10px;border-radius:8px;font:inherit;font-size:12px;line-height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;position:relative}
 .ag-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -268,10 +275,12 @@ window.__ModuleLoader__.load({
 .ag-dist-bar{height:10px;box-shadow:inset 0 1px 2px color-mix(in srgb,#000 8%,transparent)}
 .ag-dist-legend{gap:14px;color:var(--dsw-alias-label-secondary)}
 .ag-project-panel{margin-top:0}
-.ag-project-row{grid-template-columns:130px minmax(0,1fr) 84px 170px;padding:3px 0}
+.ag-project-row{grid-template-columns:130px minmax(0,1fr) 84px 170px 64px;padding:3px 0}
 .ag-project-name{font-size:12px}
 .ag-project-bar{height:7px}
 .ag-project-foot{border-top:1px dashed var(--dsw-alias-border-l1);padding-top:6px}
+.ag-project-trust{display:flex;justify-content:flex-end;min-width:0}
+.ag-project-trust .ag-set-btn{height:24px!important;padding:0 9px!important;font-size:11px!important}
 .ag-attention{margin:10px 18px 0;border-radius:10px}
 .ag-toolbar2{padding:9px 18px}
 .ag-snap-bar{padding:8px 18px}
@@ -282,6 +291,7 @@ window.__ModuleLoader__.load({
   .ag-substat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ag-view-badges{display:none}
   .ag-project-row{grid-template-columns:minmax(0,1fr) 90px}
+  .ag-project-trust{display:none}
   .ag-project-path,.ag-project-bar{display:none}
 }
 /* ---- settings controls: calmer buttons, real switches ---- */
@@ -320,6 +330,20 @@ window.__ModuleLoader__.load({
 .ag-set-stage{height:24px;border-radius:12px;padding:0 10px;font-size:12px;line-height:24px;font-weight:600;letter-spacing:.01em}
 .ag-set-card-sub{font-size:13.5px;line-height:20px}
 .ag-set-item-label{font-size:13.5px;line-height:20px}
+
+/* ---- collapsible settings cards + dark-mode button contrast ---- */
+.ag-set-card-head{cursor:pointer;position:relative;padding-right:28px;user-select:none;border-radius:6px}
+.ag-set-card-head::after{content:'⌄';position:absolute;right:1px;top:0;color:var(--dsw-alias-label-tertiary);font-size:16px;line-height:24px;transition:transform .15s ease}
+.ag-set-card.ag-set-collapsed .ag-set-card-head::after{content:'›';transform:none}
+.ag-set-card.ag-set-collapsed > :not(.ag-set-card-head){display:none}
+.ag-set-card-head:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
+.ag-set-btn{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2);box-shadow:0 1px 2px color-mix(in srgb,#000 8%,transparent)}
+.ag-set-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-label-tertiary)}
+.ag-set-btn-primary{border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}
+.ag-set-btn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover);border-color:transparent}
+.ag-settings-chip{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:500}
+.ag-settings-chip:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-label-tertiary)}
+.ag-set-item-del{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1)}
 `
 
     const VERDICT_LABELS = {
@@ -763,6 +787,24 @@ window.__ModuleLoader__.load({
           .catch(function () {})
       }
 
+      const projectTrusted = function (path) {
+        const roots = Array.isArray(rulesCfg.projectTrust) ? rulesCfg.projectTrust : []
+        return roots.some(function (root) {
+          const r = String(root || '').replace(/\/+$/, '')
+          return r && (path === r || String(path).startsWith(r + '/'))
+        })
+      }
+      const trustProject = function (path) {
+        if (!path || projectTrusted(path)) return
+        fetch('/api/auto-approve/rules', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'add', kind: 'projectTrust', value: path }),
+        }).then(function (r) { return r.json() }).then(function (res) {
+          if (res && res.ok) loadRules()
+        }).catch(function () {})
+      }
+
       const loadProjectStats = function () {
         fetch('/api/auto-approve/project-stats', { headers: { 'cache-control': 'no-cache' } })
           .then(function (r) { return r.json() })
@@ -966,7 +1008,14 @@ window.__ModuleLoader__.load({
         ['escalate', T('需人工介入','Needs human attention'), counts.escalate],
         ['attention', T('需关注','Needs attention'), counts.rejected + counts.escalate],
       ]
-      const scrollToSection = function (id) { const el = document.getElementById(id); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
+      const scrollToSection = function (id) {
+        const el = document.getElementById(id)
+        if (el && el.classList.contains('ag-set-collapsed')) {
+          const head = el.firstElementChild
+          if (head && head.click) head.click()
+        }
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
       const stat = function (label, value, sub) {
         return React.createElement('div', { className: 'ag-stat', key: label },
           React.createElement('span', { className: 'ag-stat-label' }, label),
@@ -1074,6 +1123,19 @@ window.__ModuleLoader__.load({
           ),
         )
       }
+      const dismissOnboarding = function () {
+        fetch('/api/auto-approve/rules', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'set', kind: 'onboarded', value: true }),
+        }).then(function (r) { return r.json() }).then(function (res) {
+          if (!res || !res.ok) return
+          setRulesSnap(function (prev) {
+            if (!prev || !prev.config) return prev
+            return Object.assign({}, prev, { config: Object.assign({}, prev.config, { onboarded: true }) })
+          })
+        }).catch(function () {})
+      }
       return React.createElement('div', { className: 'ag-view' },
         React.createElement('div', { className: 'ag-view-head' },
           React.createElement('div', { className: 'ag-view-hero' },
@@ -1096,6 +1158,30 @@ window.__ModuleLoader__.load({
             ),
           ),
         ),
+        rulesSnap && rulesCfg.onboarded !== true
+          ? React.createElement('div', { className: 'ag-onboard' },
+              React.createElement('div', { className: 'ag-onboard-body' },
+                React.createElement('div', { className: 'ag-onboard-title' },
+                  rulesCfg.selfLearn !== false
+                    ? T('自学习已开启（推荐）','Self-learning is on (recommended)')
+                    : T('自学习当前关闭','Self-learning is currently off')),
+                React.createElement('div', { className: 'ag-onboard-text' },
+                  rulesCfg.selfLearn !== false
+                    ? T('你批准过的同类操作会先在当前会话复用，再跨会话沉淀为全局规则；Flash 累计 SAFE 判定也会自动学习。删除、凭据、远程/生产等危险类别仍然转人工。','Approved repeats are reused in this session and promoted across sessions; repeated Flash SAFE verdicts also learn automatically. Dangerous categories still ask you.')
+                    : T('你仍然可以开启自学习，让 Flash 累计 SAFE 的操作自动沉淀；跨会话晋升和签名毕业不受影响。','You can enable self-learning so repeated Flash SAFE operations are learned; cross-session promotion and graduation still work.')),
+              ),
+              React.createElement('div', { className: 'ag-onboard-actions' },
+                React.createElement('button', {
+                  type: 'button', className: 'ag-set-btn ag-btn-xs',
+                  onClick: function () { setViewTab('settings') },
+                }, T('去设置','Settings')),
+                React.createElement('button', {
+                  type: 'button', className: 'ag-set-btn ag-btn-xs ag-set-btn-primary',
+                  onClick: dismissOnboarding,
+                }, T('知道了','Got it')),
+              ),
+            )
+          : null,
         React.createElement('div', { className: 'ag-tabbar', role: 'tablist', 'aria-label': T('审批视图','Approval audit') },
           [['records', T('记录','Records')], ['settings', T('设置','Settings')]].map(function (t) {
             return React.createElement('button', {
@@ -1193,6 +1279,18 @@ window.__ModuleLoader__.load({
                           ),
                           React.createElement('span', { className: 'ag-project-meta' },
                             p.total + ' 条 · 自动 ' + p.auto + ' · 拒绝 ' + p.rejected + (p.shadow ? ' · Shadow ' + p.shadow : '')),
+                          React.createElement('span', { className: 'ag-project-trust' },
+                            p.path
+                              ? (projectTrusted(p.path)
+                                  ? React.createElement('span', { style: { fontSize: 10, color: 'var(--dsw-alias-label-tertiary)' } }, T('已信任','Trusted'))
+                                  : (p.approved > 0
+                                      ? React.createElement('button', {
+                                          type: 'button', className: 'ag-set-btn ag-btn-xs', title: T('以后项目内 edit/write 与已识别测试自动放行','Auto-approve edit/write and recognized tests in this project'),
+                                          onClick: function () { trustProject(p.path) },
+                                        }, T('信任','Trust'))
+                                      : null))
+                              : null,
+                          ),
                         )
                       }),
                     ),
@@ -1287,7 +1385,7 @@ window.__ModuleLoader__.load({
               React.createElement('div', { className: 'ag-settings-nav' },
                 React.createElement('div', { className: 'ag-settings-title' }, T('自动审批设置','Auto-approval settings')),
                 React.createElement('div', { className: 'ag-settings-chips' },
-                  [['setup', '初始化'], ['pipeline', '判定管道'], ['deny', '① DENY'], ['allow', '② 白名单'], ['denyrules', '③ 永久人工'], ['flash', '④ Flash'], ['shadow', 'Shadow'], ['learning', '⑤ 学习'], ['autolearn', '⑥ 自动学习'], ['library', '⑦ 规则库']].map(function (item) {
+                  [['setup', '初始化'], ['pipeline', '判定管道'], ['deny', '① DENY'], ['allow', '② 白名单'], ['denyrules', '③ 永久人工'], ['flash', '④ Flash'], ['shadow', 'Shadow'], ['learning', '⑤ 学习与沉淀'], ['library', '⑥ 规则库']].map(function (item) {
                     return React.createElement('button', {
                       type: 'button', key: item[0], className: 'ag-settings-chip',
                       onClick: function () { scrollToSection('ag-tabsec-' + item[0]) },
@@ -1310,7 +1408,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    // ================= 设置页：自动审批规则管理（settings.section） =================
+    // ================= 审批页设置 tab：自动审批规则管理 =================
     const RULE_SOURCE_TAGS = {
       default: React.createElement('span', { className: 'ag-set-tag ag-set-tag-blue' }, '预置'),
       learned: React.createElement('span', { className: 'ag-set-tag ag-set-tag-green' }, '学习沉淀'),
@@ -1346,12 +1444,31 @@ window.__ModuleLoader__.load({
       const [editError, setEditError] = React.useState('')
       const [stage1Provider, setStage1Provider] = React.useState('')
       const [stage1Model, setStage1Model] = React.useState('')
-      const [selfLearnThreshold, setSelfLearnThreshold] = React.useState('5')
-      const [selfLearnSessions, setSelfLearnSessions] = React.useState('2')
+      const [selfLearnThreshold, setSelfLearnThreshold] = React.useState('3')
+      const [selfLearnSessions, setSelfLearnSessions] = React.useState('1')
       const [promotionSessions, setPromotionSessions] = React.useState('2')
       const [graduationThreshold, setGraduationThreshold] = React.useState('3')
       const [graduationSessions, setGraduationSessions] = React.useState('2')
       const [shadowSuggestions, setShadowSuggestions] = React.useState({ groups: [], total: 0 })
+
+      const [collapsedCards, setCollapsedCards] = React.useState({ setup: true, pipeline: true, deny: true, allow: true, denyrules: true, flash: true, shadow: true, learning: true, library: true })
+
+      const toggleSettingCard = function (e) {
+        const target = e.target
+        const head = target && target.closest ? target.closest('.ag-set-card-head') : null
+        if (!head) return
+        if (target.closest && target.closest('button,a,input,select,textarea')) return
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return
+        if (e.type === 'keydown') e.preventDefault()
+        const card = head.parentElement
+        const key = card && card.id && card.id.indexOf(idPrefix) === 0 ? card.id.slice(idPrefix.length) : ''
+        if (!key) return
+        setCollapsedCards(function (prev) {
+          const next = Object.assign({}, prev)
+          next[key] = !next[key]
+          return next
+        })
+      }
 
       const loadShadowSuggestions = function () {
         fetch('/api/auto-approve/shadow-suggestions', { headers: { 'cache-control': 'no-cache' } })
@@ -1448,7 +1565,7 @@ window.__ModuleLoader__.load({
       }
 
       if (!snapshot) {
-        return React.createElement('div', { className: 'ag-set' },
+        return React.createElement('div', { className: 'ag-set', onClick: toggleSettingCard, onKeyDown: toggleSettingCard },
           React.createElement('div', { className: error ? 'ag-set-err' : 'ag-set-ok' }, error || T('加载中…','Loading…')))
       }
 
@@ -1549,14 +1666,14 @@ window.__ModuleLoader__.load({
         )
       }
 
-      return React.createElement('div', { className: 'ag-set' },
+      return React.createElement('div', { className: 'ag-set', onClick: toggleSettingCard, onKeyDown: toggleSettingCard },
         React.createElement('h3', { className: 'ag-set-title' }, '自动审批'),
         React.createElement('p', { className: 'ag-set-intro' },
           '管理自动审批的放行与阻塞规则：查看当前判定管道、黑/白名单与学习进度，可自行添加规则（如把 edit 加入白名单后自动放行）或终止错误的学习。修改即时生效（热更新）。'),
 
         // ---- 初始化卡片 ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'setup' },
-          React.createElement('div', { className: 'ag-set-card-head' },
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.setup ? ' ag-set-collapsed' : ''), id: idPrefix + 'setup' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.setup },
             React.createElement('div', { className: 'ag-set-card-title' }, '初始化权限预设'),
             React.createElement('p', { className: 'ag-set-card-sub' },
               '安装后需在 profile 的 cordis.patch.yml 添加 auto-approve 权限预设（预设表在配置构造时冻结，无法自动扩展）。' +
@@ -1573,8 +1690,8 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 管道总览 ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'pipeline' },
-          React.createElement('div', { className: 'ag-set-card-head' },
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.pipeline ? ' ag-set-collapsed' : ''), id: idPrefix + 'pipeline' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.pipeline },
             React.createElement('div', { className: 'ag-set-card-title' }, '当前判定管道'),
             React.createElement('p', { className: 'ag-set-card-sub' },
               '每次沙箱越界按下述链路判定，下面的配置卡片按管道顺序排列：')),
@@ -1587,8 +1704,8 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 黑名单（denyKeywords） ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'deny' },
-          React.createElement('div', { className: 'ag-set-card-head' },
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.deny ? ' ag-set-collapsed' : ''), id: idPrefix + 'deny' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.deny },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '① DENY 层'),
               '黑名单 · 不可逆危险词'),
@@ -1626,8 +1743,8 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 白名单（allowRules） ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'allow' },
-          React.createElement('div', { className: 'ag-set-card-head' },
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.allow ? ' ag-set-collapsed' : ''), id: idPrefix + 'allow' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.allow },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '② 白名单层'),
               '白名单 · 自动放行规则'),
@@ -1646,7 +1763,7 @@ window.__ModuleLoader__.load({
               },
             }, '添加'),
           ),
-          React.createElement('div', { className: 'ag-set-empty', style: { padding: '0 0 2px' } }, '筛选 / 启停 / 导出 / 证据：见下方 ⑦ 规则库。'),
+          React.createElement('div', { className: 'ag-set-empty', style: { padding: '0 0 2px' } }, '筛选 / 启停 / 导出 / 证据：见下方 ⑥ 规则库。'),
           (cfg.allowRules || []).length === 0
             ? React.createElement('div', { className: 'ag-set-empty' }, '无白名单规则')
             : React.createElement('div', { className: 'ag-set-list' },
@@ -1670,8 +1787,8 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 永久人工（denyRules） ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'denyrules' },
-          React.createElement('div', { className: 'ag-set-card-head' },
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.denyrules ? ' ag-set-collapsed' : ''), id: idPrefix + 'denyrules' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.denyrules },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '③ denyRules 层'),
               '永久人工 · 拒绝升级规则'),
@@ -1700,25 +1817,13 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- 阈值 / 超时（④ Flash 判定参数） ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'flash' },
-          React.createElement('div', { className: 'ag-set-card-head' },
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.flash ? ' ag-set-collapsed' : ''), id: idPrefix + 'flash' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.flash },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, '④ Flash 判定'),
-              '阈值与超时'),
+              '判定超时'),
             React.createElement('p', { className: 'ag-set-card-sub' },
-              '管道第四步：确认阈值 N（学习满 N 次后第 N+1 次自动放行）与 Flash 判断超时（超时自动重试 1 次，仍失败转人工）。')),
-          React.createElement('div', { className: 'ag-set-row' },
-            React.createElement('span', { className: 'ag-set-item-meta' }, '确认阈值 N：'),
-            React.createElement('input', {
-              className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: threshold,
-              onChange: function (e) { setThreshold(e.target.value) },
-            }),
-            React.createElement('button', {
-              type: 'button', className: 'ag-set-btn', disabled: busy,
-              onClick: function () { api({ op: 'set', kind: 'riskyThreshold', value: Number(threshold) }) },
-            }, '保存'),
-            React.createElement('span', { className: 'ag-set-item-meta' }, '满 ' + Number(threshold) + ' 次后第 ' + (Number(threshold) + 1) + ' 次起自动'),
-          ),
+              '管道第四步：Flash 判断超时（超时自动重试 1 次，仍失败转人工）。人工确认阈值已移到 ⑤ 学习与沉淀。')),
           React.createElement('div', { className: 'ag-set-row' },
             React.createElement('span', { className: 'ag-set-item-meta' }, 'Flash 判断超时(ms)：'),
             React.createElement('input', {
@@ -1733,8 +1838,8 @@ window.__ModuleLoader__.load({
         ),
 
         // ---- Shadow 模式（观察期：只记录本可自动放行的候选，不真正放行） ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'shadow' },
-          React.createElement('div', { className: 'ag-set-card-head' },
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.shadow ? ' ag-set-collapsed' : ''), id: idPrefix + 'shadow' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.shadow },
             React.createElement('div', { className: 'ag-set-card-title' },
               React.createElement('span', { className: 'ag-set-stage' }, 'Shadow'),
               '观察模式'),
@@ -1771,63 +1876,74 @@ window.__ModuleLoader__.load({
                 })),
         ),
 
-        // ---- 学习状态（⑤ 学习沉淀） ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'learning' },
-          React.createElement('div', { className: 'ag-set-card-head' },
+        // ---- 自动学习（⑤ 会话记忆 / 晋升 / 毕业 / 自学习） ----
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.learning ? ' ag-set-collapsed' : ''), id: idPrefix + 'learning' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.learning },
             React.createElement('div', { className: 'ag-set-card-title' },
-              React.createElement('span', { className: 'ag-set-stage' }, '⑤ 学习沉淀'),
-              '正在学习'),
+              React.createElement('span', { className: 'ag-set-stage' }, '⑤ 学习与沉淀'),
+              '人工确认 · 会话记忆 · 晋升 · 毕业 · 自学习'),
             React.createElement('p', { className: 'ag-set-card-sub' },
-              '中立操作人工确认制：同一「工具|模式|类别」每确认一次计数 +1，确认满 ' + cfg.riskyThreshold + ' 次后，第 ' + (cfg.riskyThreshold + 1) + ' 次起自动放行并沉淀规则。若学习有误可终止（删除计数与样本）。')),
-          statKeys.length === 0
-            ? React.createElement('div', { className: 'ag-set-empty' }, '暂无正在学习的内容')
-            : React.createElement('div', { className: 'ag-set-learn' },
-                statKeys.map(function (k) {
-                  const samples = (learnHistory[k] || []).map(function (s) { return (s && (s.fp || s.ctx)) || '' }).join(' / ').slice(0, 160)
-                  return React.createElement('div', { className: 'ag-set-learn-item', key: k },
-                    React.createElement('div', { className: 'ag-set-learn-info' },
-                      React.createElement('span', { className: 'ag-set-learn-key' }, k),
-                      React.createElement('span', { className: 'ag-set-learn-sub' },
-                        '已确认 ' + learnStats[k] + '/' + cfg.riskyThreshold + (samples ? ' · ' + samples : '')),
-                    ),
-                    React.createElement('button', {
-                      type: 'button', className: 'ag-set-learn-stop', title: '终止学习（删除计数与样本）',
-                      onClick: function () {
-                        if (!window.confirm('终止「' + k + '」的学习？将删除其确认计数与样本。')) return
-                        api({ op: 'remove', kind: 'learning', value: k })
-                      },
-                    }, '终止'),
-                  )
-                }),
-              ),
-        ),
-
-        // ---- 自动学习（⑥ 会话记忆 / 晋升 / 毕业 / 自学习） ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'autolearn' },
-          React.createElement('div', { className: 'ag-set-card-head' },
-            React.createElement('div', { className: 'ag-set-card-title' },
-              React.createElement('span', { className: 'ag-set-stage' }, '⑥ 自动学习'),
-              '会话记忆 · 晋升 · 毕业 · 自学习'),
-            React.createElement('p', { className: 'ag-set-card-sub' },
-              '零点击学习参数：人工批准过的同操作本会话直放；同类累计后自动沉淀；自学习可直接从 Flash SAFE 判定毕业。信任目录与毕业进度在 ⑦ 规则库管理。')),
+              '两层学习合并：人工确认累计会沉淀为规则；会话记忆/晋升/毕业/自学习则从批准和 Flash SAFE 判定中零点击沉淀。信任目录与规则管理在 ⑥ 规则库。'),
+          React.createElement('div', { className: 'ag-learn-note' },
+            cfg.selfLearn !== false
+              ? '自学习已开启：Flash 累计 ' + (cfg.selfLearnThreshold || 3) + ' 次 SAFE（至少 ' + (cfg.selfLearnSessions || 1) + ' 个会话）后自动沉淀为全局规则；可随时关闭。'
+              : '自学习当前关闭：会话记忆、跨会话晋升、签名毕业仍会基于你的人工批准工作。')),
+          React.createElement('div', { className: 'ag-set-group' },
+            React.createElement('div', { className: 'ag-set-group-title' }, '人工确认学习'),
+            field('人工确认阈值（次数）',
+              [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: threshold, onChange: function (e) { setThreshold(e.target.value) } }),
+               React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'riskyThreshold', value: Number(threshold) }) } }, '保存')],
+              '同一「工具|模式|类别」确认满 N 次后，第 N+1 次起自动放行并沉淀规则'),
+            statKeys.length === 0
+              ? React.createElement('div', { className: 'ag-set-empty' }, '暂无正在学习的内容')
+              : React.createElement('div', { className: 'ag-set-learn' },
+                  statKeys.map(function (k) {
+                    const samples = (learnHistory[k] || []).map(function (s) { return (s && (s.fp || s.ctx)) || '' }).join(' / ').slice(0, 160)
+                    return React.createElement('div', { className: 'ag-set-learn-item', key: k },
+                      React.createElement('div', { className: 'ag-set-learn-info' },
+                        React.createElement('span', { className: 'ag-set-learn-key' }, k),
+                        React.createElement('span', { className: 'ag-set-learn-sub' },
+                          '已确认 ' + learnStats[k] + '/' + cfg.riskyThreshold + (samples ? ' · ' + samples : '')),
+                      ),
+                      React.createElement('button', {
+                        type: 'button', className: 'ag-set-learn-stop', title: '终止学习（删除计数与样本）',
+                        onClick: function () {
+                          if (!window.confirm('终止「' + k + '」的学习？将删除其确认计数与样本。')) return
+                          api({ op: 'remove', kind: 'learning', value: k })
+                        },
+                      }, '终止'),
+                    )
+                  }),
+                ),
+          ),
+          React.createElement('div', { className: 'ag-set-group-title' }, '自动学习（零点击）'),
           !cfg.onboarded
             ? React.createElement('div', { className: 'ag-alert' },
-                React.createElement('div', { className: 'ag-alert-title' }, '自动学习默认是保守的'),
+                React.createElement('div', { className: 'ag-alert-title' },
+                  cfg.selfLearn !== false ? '自动学习已开启（推荐）' : '自动学习已就绪'),
                 React.createElement('div', { className: 'ag-alert-text' },
-                  '会话记忆 / 跨会话晋升 / 签名毕业已默认开启（都基于你的人工批准）；自学习默认关闭（会从 Flash 判定自学）。可以保持推荐，也可以现在开启更激进的自学习。'),
+                  cfg.selfLearn !== false
+                    ? '自学习、会话记忆、跨会话晋升默认开启。你不需要先配置：正常批准几次，规则会自动沉淀并在不同会话间复用；危险类别仍转人工。'
+                    : '会话记忆与跨会话晋升已开启；自学习当前关闭。可以现在开启，让 Flash SAFE 的同类操作也自动沉淀。'),
                 React.createElement('div', { className: 'ag-set-row' },
                   React.createElement('button', {
-                    type: 'button', className: 'ag-set-btn ag-btn-xs',
+                    type: 'button', className: 'ag-set-btn ag-btn-xs ag-set-btn-primary',
                     onClick: function () { api({ op: 'set', kind: 'onboarded', value: true }) },
-                  }, '保持推荐（保守）'),
-                  React.createElement('button', {
-                    type: 'button', className: 'ag-set-btn ag-btn-xs',
-                    onClick: function () { api({ op: 'set', kind: 'selfLearn', value: true }); api({ op: 'set', kind: 'onboarded', value: true }) },
-                  }, '开启自学习（激进）'),
+                  }, '知道了，开始使用'),
+                  cfg.selfLearn === false
+                    ? React.createElement('button', {
+                        type: 'button', className: 'ag-set-btn ag-btn-xs',
+                        onClick: function () { api({ op: 'set', kind: 'selfLearn', value: true }); api({ op: 'set', kind: 'onboarded', value: true }) },
+                      }, '开启自学习')
+                    : React.createElement('button', {
+                        type: 'button', className: 'ag-set-btn ag-btn-xs',
+                        onClick: function () { api({ op: 'set', kind: 'selfLearn', value: false }); api({ op: 'set', kind: 'onboarded', value: true }) },
+                      }, '暂时关闭自学习'),
                 ),
               )
             : null,
           React.createElement('div', { className: 'ag-set-group' },
+            React.createElement('div', { className: 'ag-set-group-title' }, '自动学习参数'),
             field('会话记忆',
               switchToggle(cfg.sessionMemory !== false, function () { api({ op: 'set', kind: 'sessionMemory', value: !(cfg.sessionMemory !== false) }) }, '会话记忆'),
               '本会话人工批准过的同操作直接放行'),
@@ -1839,7 +1955,7 @@ window.__ModuleLoader__.load({
               '一次人工批准后，同类操作由 Flash 语义验证；默认关，不沉淀规则'),
             field('自学习',
               switchToggle(cfg.selfLearn === true, function () { api({ op: 'set', kind: 'selfLearn', value: !(cfg.selfLearn === true) }) }, '自学习'),
-              '从 Flash 连续 SAFE 判定毕业（无人工确认）'),
+              '从 Flash 累计 SAFE 判定毕业（无人工确认）'),
             field('跨会话晋升（会话数）',
               [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: promotionSessions, onChange: function (e) { setPromotionSessions(e.target.value) } }),
                React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'promotionSessions', value: Number(promotionSessions) }) } }, '保存')],
@@ -1855,7 +1971,7 @@ window.__ModuleLoader__.load({
             field('自学习阈值（次数）',
               [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: selfLearnThreshold, onChange: function (e) { setSelfLearnThreshold(e.target.value) } }),
                React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'selfLearnThreshold', value: Number(selfLearnThreshold) }) } }, '保存')],
-              '连续 SAFE 判定次数'),
+              '累计 SAFE 判定次数'),
             field('自学习会话数',
               [React.createElement('input', { key: 'i', className: 'ag-set-input ag-set-input-num', type: 'number', min: 1, value: selfLearnSessions, onChange: function (e) { setSelfLearnSessions(e.target.value) } }),
                React.createElement('button', { key: 'b', type: 'button', className: 'ag-set-btn ag-btn-xs', disabled: busy, onClick: function () { api({ op: 'set', kind: 'selfLearnSessions', value: Number(selfLearnSessions) }) } }, '保存')],
@@ -1868,11 +1984,11 @@ window.__ModuleLoader__.load({
           ),
         ),
 
-        // ---- 规则库（⑦ 统一管理） ----
-        React.createElement('div', { className: 'ag-set-card', id: idPrefix + 'library' },
-          React.createElement('div', { className: 'ag-set-card-head' },
+        // ---- 规则库（⑥ 统一管理） ----
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.library ? ' ag-set-collapsed' : ''), id: idPrefix + 'library' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.library },
             React.createElement('div', { className: 'ag-set-card-title' },
-              React.createElement('span', { className: 'ag-set-stage' }, '⑦ 规则库'),
+              React.createElement('span', { className: 'ag-set-stage' }, '⑥ 规则库'),
               '统一管理 · 白名单 / 永久人工 / 信任目录 / 毕业进度'),
             React.createElement('p', { className: 'ag-set-card-sub' },
               '查看所有生效规则的来源、命中与状态；支持搜索、启停、删除、导出与证据。')),
@@ -2075,13 +2191,6 @@ window.__ModuleLoader__.load({
           )
         })
 
-        // 设置页：自动审批规则管理（settings.section）
-        slots.inject('settings.section', function () {
-          return slots.register(
-            { name: 'settings.section', id: 'dsh-approval-gate.settings', order: 60, label: '自动审批' },
-            function (props) { return React.createElement(RulesSettings, { slotsProps: props }) },
-          )
-        })
       },
     }
 

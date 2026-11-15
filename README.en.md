@@ -64,7 +64,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Real tool-call input** | Resolves `callId` to the actual `tool/call` arguments (redacted, truncated to 4 KB) |
 | **Confirmation learning** | Neutral operations auto-approve after the threshold; fingerprint hits and semantic same-class verification |
 | **Read-only fast path** | Works on first install: strictly read-only `git status` / `gh pr view` / `ls` / `cat` / `grep` / `sed -n` commands need no confirmation; only whitelisted programs, no pipes/redirection, paths inside the command cwd, and no rules/learning/snapshots written |
-| **Project trust** | Opt in per project root: only `edit`/`write` and recognized `test`/`build` commands (`npm test`, `go test`, etc.) under that root are allowed; `git push`, network, and deletion still ask. Configure under ⑦ Rule library → Trusted dirs |
+| **Project trust** | Opt in per project root: only `edit`/`write` and recognized `test`/`build` commands (`npm test`, `go test`, etc.) under that root are allowed; `git push`, network, and deletion still ask. Configure under ⑥ Rule library → Trusted dirs |
 | **Command-intent learning** | Extracts safe command intents from real bash arguments (`git status`, `npm test`, `gh pr view`, …) and binds them to cwd; `npm test` and `npm publish` no longer share a learning key, and unrecognized commands never enter learning |
 | **Semantic reuse** | After one manual approval, similar neutral operations are checked by Flash (SAME/DIFFERENT) using the real arguments and requiring the same program (bash) or tool; only the current operation is allowed, no rule is sedimented; off by default |
 | **Remember / forget** | One click in the approval view; path fingerprint when available, exact-description matching otherwise; reversible |
@@ -72,7 +72,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Session memory** | The same fingerprint approved once in a session repeats without prompting |
 | **Cross-session promotion** | Multi-session approvals become global rules (path fingerprint, intent signal, no deny history) |
 | **Signature graduation** | Similar operations graduate into rules after enough manual confirmations (multi-fingerprint, 2 sessions) |
-| **Self-learning (opt-in)** | Graduates signatures from consecutive Flash `SAFE` verdicts without human confirmation; off by default |
+| **Self-learning (on by default)** | Graduates signatures from cumulative Flash `SAFE` verdicts without human confirmation; default 3 verdicts / 1 session, thresholds and cap configurable |
 | **Negative feedback** | Rejecting or reverting removes the learned rule/memory and makes the pattern permanent manual |
 | **Rule library** | Allow/deny/trust/graduation in one place; search, inline edit, enable/disable, delete, JSON export, evidence |
 | **Rule health check** | Flags generic `contains`, blanket mode rules and huge trust roots, with narrowing suggestions |
@@ -90,7 +90,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 >
 > **Primary install method: use the DSH app.** No CLI needed; Desktop users should start with Option 1.
 >
-> **No setup needed on first use**: after installing and enabling the `auto-approve` preset, strictly read-only commands (`git status`, `gh pr view`, `ls`, `cat`, `grep`, `sed -n`, …) are approved directly. Writes, cross-workspace work, network/push operations still ask, so onboarding does not become a click marathon.
+> **No setup needed on first use**: after installing and enabling the `auto-approve` preset, strictly read-only commands (`git status`, `gh pr view`, `ls`, `cat`, `grep`, `sed -n`, …) are approved directly. **Self-learning is on by default**, so a few approvals become reusable rules across sessions. Writes, cross-workspace work, network/push operations still ask, so onboarding does not become a click marathon.
 
 ### Option 1: install in the DSH app (recommended)
 
@@ -171,11 +171,12 @@ After a reload, the session permission dropdown shows **自动审批（Flash）*
 ## Quick start
 
 1. Select **自动审批（Flash）** in the session permission dropdown — per session only.
-2. The first time you open Settings → Auto approval → **⑥ Auto learning**, a one-time guide appears:
-   - **Keep recommended (conservative)**: session memory / promotion / graduation on, self-learning off;
-   - **Enable self-learning (aggressive)**: learn directly from Flash `SAFE` verdicts.
-3. Work normally: safe operations run silently, uncertain ones prompt you, and approvals gradually become rules.
-4. For control: **Remember this operation** per row, manage everything in **⑦ Rule library** (including inline editing), tune thresholds in **⑥ Auto learning**.
+2. **No learning setup is required**: self-learning, session memory, and cross-session promotion are on by default. The first time you open **Approval → Settings**, a short note explains:
+   - **Default**: after 3 cumulative Flash `SAFE` verdicts (at least 1 session), a rule is learned; session memory / promotion / graduation are also on;
+   - **More conservative**: turn self-learning off or raise the thresholds in ⑤;
+   - **Faster**: lower the thresholds; click **Trust** on a project-stat row, or add trust roots / project trust in ⑥.
+3. Work normally: safe operations run silently, uncertain ones prompt you; approved repeats are reused in this session and promoted to global rules across sessions.
+4. For control: **Remember this operation** per row, manage everything in **⑥ Rule library** (including inline editing), tune thresholds in **⑤ Learning & sedimentation**.
 
 ## UI
 
@@ -201,24 +202,24 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 
 ### Settings tab
 
-The approval view embeds the full Auto approval settings (the same configuration as the Settings page):
+The approval view embeds the full Auto approval settings; this is the **only entry point**:
 
-- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / ⑤ Learning / ⑥ Auto learning / ⑦ Rule library;
+- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / ⑤ Learning & sedimentation / ⑥ Rule library;
 - click to scroll to the card; changes apply hot without leaving the view;
-- the Settings → Auto approval entry remains as a second entry point.
+- click a card title to collapse / expand it (collapsed by default); clicking a top chip expands then scrolls.
+- the DSH global Settings page no longer duplicates the Auto approval entry; configure everything from the Approval tab.
 
-Eight configuration cards:
+Seven configuration cards:
 
 | Card | Content |
 | --- | --- |
 | ① DENY | Irreversible danger keywords |
 | ② Allowlist | Auto-approve rules with source and hit count |
 | ③ denyRules | Permanently manual rules |
-| ④ Flash | `riskyThreshold`, `judgeTimeoutMs` |
+| ④ Flash | `judgeTimeoutMs` |
 | Shadow | Observation toggle; candidates are recorded, not auto-approved |
-| ⑤ Learning | Keys currently learning and their progress |
-| ⑥ Auto learning | Session memory, promotion, graduation, self-learning, two-stage, semantic reuse |
-| ⑦ Rule library | Unified rule management + inline editing + health check + export |
+| ⑤ Learning & sedimentation | `riskyThreshold`, manual-confirmation keys/threshold + session memory, promotion, graduation, self-learning, two-stage, semantic reuse |
+| ⑥ Rule library | Unified rule management + inline editing + health check + export |
 
 > **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
 
@@ -255,9 +256,20 @@ flowchart TD
 | Session memory | Manual approvals in this session | Session | On |
 | Cross-session promotion | Manual approvals in multiple sessions | Global rule | On (2 sessions) |
 | Signature graduation | Repeated manual approvals of similar ops | Global rule | On (3 / 2 sessions) |
-| Self-learning | Consecutive Flash `SAFE` verdicts | Global rule | **Off** |
+| Self-learning | Consecutive Flash `SAFE` verdicts | Global rule | **On** (3 verdicts / 1 session; can be turned off) |
 
-Self-learning is off by default because it is the only layer with no human label. When enabled, guardrails still apply: path signature, no deny history, thresholds, a 50-rule cap, and rejection/revert removes the rule and progress.
+Self-learning is on by default so a new user can reduce repeat approvals without studying the settings first. It is still the only layer without a human label, so guardrails apply: path signature, no deny history, verdict/session thresholds, a 50-rule cap; dangerous categories never enter learning, and rejection/revert removes the rule and progress. Turn it off in ⑤ for a fully conservative setup; an explicit `false` is never overridden by an upgrade.
+
+### How cross-session learning works
+
+| Path | Trigger | Result |
+| --- | --- | --- |
+| Session memory | You approved the same operation in this session | Reused in this session (12h TTL) |
+| Cross-session promotion | Same operation approved in at least 2 sessions | Global allow rule |
+| Signature graduation | Same class approved 3 times across 2 sessions with no deny history | Global signature rule |
+| Self-learning | 3 cumulative Flash `SAFE` verdicts in at least 1 session | Global rule (no human label) |
+
+These rules are **global**: a test command or project write learned in session A also applies in session B. Audit or delete them by source, hit count, and evidence in ⑥ Rules.
 
 ## Configuration
 
@@ -276,9 +288,9 @@ Everything lives in `~/.dsh/auto-approve/`; edits to `allowlist.json` are hot-re
 | `promotionSessions` | 2 | Sessions for cross-session promotion (3 without intent signal) |
 | `graduationThreshold` | 3 | Manual confirmations for graduation (4 without intent signal) |
 | `graduationSessions` | 2 | Sessions for graduation |
-| `selfLearn` | false | Self-learning switch |
-| `selfLearnThreshold` | 5 | Consecutive SAFE verdicts |
-| `selfLearnSessions` | 2 | Sessions for self-learning |
+| `selfLearn` | true | Self-learning switch (explicit false stays off) |
+| `selfLearnThreshold` | 3 | Consecutive SAFE verdicts |
+| `selfLearnSessions` | 1 | Sessions for self-learning |
 | `selfLearnMaxRules` | 50 | Self-learned rule cap |
 | `twoStage` | false | Two-stage judging switch |
 | `shadow` | false | Shadow observation mode; candidates are recorded but not auto-approved |
@@ -327,16 +339,17 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 - [x] Shadow candidate grouping and rule suggestions (same command/directory candidates aggregate; create a rule manually);
 - [x] First-use read-only fast path (strictly read-only, inside cwd, no pipes/redirection, no setup).
 - [x] Project-level trust: allow edit/write and recognized test/build inside a project root; push/network/deletion still ask.
+- [x] Onboarding and default self-learning: a first-run note explains cross-session learning; self-learning defaults to 3 SAFE verdicts / 1 session.
 
 ## FAQ
 
-**Why is self-learning off by default?** It is the only layer without human labels; enable it in ⑥ when you accept the risk.
+**Why is self-learning on by default?** It lets a new user reduce repeat approvals without configuration; dangerous categories, deny history, and explicit permanent-manual rules still win, and rejection/revert removes learned rules. Turn it off in ⑤ if you prefer a conservative setup; upgrades preserve that choice.
 
 **Can I install it alongside upstream?** Not recommended; both compete for the `auto-approve` preset and `approval/request`.
 
 **Where is learning data?** `~/.dsh/auto-approve/`; reinstalling the plugin does not delete it. Back it up before DSH upgrades.
 
-**How do I trust a directory?** Add it in ⑥ or ⑦ (for example `~/src`); it bypasses prompts but not DENY/hard-risk rules.
+**How do I trust a directory?** Add it in ⑥ (for example `~/src`); it bypasses prompts but not DENY/hard-risk rules.
 
 **Why is the approval view empty?** No sandbox escalations yet, or the session is not on the auto-approve preset.
 

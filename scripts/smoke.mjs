@@ -22,9 +22,11 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
 assert.ok(client.includes('function T(zh, en)'), 'client has i18n helper')
-for (const marker of ['记住这次操作', '取消记住', '⑦ 规则库', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任']) {
+for (const marker of ['记住这次操作', '取消记住', '⑥ 规则库', '学习与沉淀', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任', '知道了，开始使用', '自学习已开启', '以后项目内', 'ag-set-collapsed']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
+assert.ok(client.includes("className: 'ag-set', onClick: toggleSettingCard"), 'settings root wires collapse handler')
+assert.ok(!client.includes("slots.inject('settings.section'"), 'settings section entry removed')
 
 // Shadow 模式行为：开启时只记录候选并转人工，不写规则命中；关闭时恢复正常自动放行。
 const dataDir = join(process.env.DSH_HOME, 'auto-approve')
@@ -87,6 +89,15 @@ const callApi = async (path, method, body) => {
   return { status, text, json: text ? JSON.parse(text) : null }
 }
 
+const initialRules = await callApi('/api/auto-approve/rules', 'GET')
+assert.equal(initialRules.status, 200, 'rules endpoint during onboarding test')
+assert.equal(initialRules.json.config.selfLearn, true, 'self-learning defaults on for a fresh config')
+assert.equal(initialRules.json.config.selfLearnThreshold, 3, 'default self-learning threshold')
+assert.equal(initialRules.json.config.selfLearnSessions, 1, 'default self-learning sessions')
+const onboard = await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'onboarded', value: true })
+assert.equal(onboard.status, 200, 'onboarding dismissal accepted')
+assert.equal((await callApi('/api/auto-approve/rules', 'GET')).json.config.onboarded, true, 'onboarding dismissal persists')
+
 let nextCalls = 0
 const nextAllowed = async () => { nextCalls += 1; return 'allowed-once' }
 const expectManualBash = async (sid, callId, command, label) => {
@@ -135,6 +146,7 @@ const readEvents = () => readFileSync(eventsPath, 'utf8').trim().split('\n').fil
 const requestFor = (sid) => ({ ...request, agent: { session: { id: sid, cwd } } })
 const autoBeforeFlash = readEvents().filter((ev) => ev.kind === 'auto').length
 writeFileSync(allowlistPath, JSON.stringify({ version: 3, shadow: true, allowRules: [] }), 'utf8')
+await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'selfLearn', value: true })
 flashReply = 'SAFE'
 nextCalls = 0
 const flashOut = await approval(requestFor('shadow-flash-test'), nextAllowed)
@@ -633,5 +645,52 @@ assert.ok(patch.includes('--- a/client.js'), 'patch targets client bundle')
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 assert.equal(pkg.name, 'dsh-moongate', 'package name')
 assert.equal(pkg.license, 'MIT', 'license stays MIT')
+
+// 自学习：默认累计 3 次 SAFE（同签名）后生成 self-learned 规则；显式 false 不生成。
+const slPath = join(cwd, 'selflearn-' + Date.now() + '.txt')
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3, riskyThreshold: 1, semanticReuse: false, shadow: false,
+  sessionMemory: false, selfLearn: true, selfLearnThreshold: 3, selfLearnSessions: 1,
+  allowRules: []
+}), 'utf8')
+flashReply = 'SAFE'
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-' + i
+  feedToolCallTool('selflearn-test', callId, 'write', { path: slPath, content: 'x' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'selflearn-test', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slPath,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once')
+  assert.equal(nextCalls, 0, 'self-learning SAFE auto-allows')
+}
+const selfLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(selfLearned, 'three SAFE verdicts create a self-learned rule')
+
+const slOffPath = join(cwd, 'selflearn-off-' + Date.now() + '.txt')
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3, riskyThreshold: 1, semanticReuse: false, shadow: false,
+  sessionMemory: false, selfLearn: false, selfLearnThreshold: 3, selfLearnSessions: 1,
+  allowRules: []
+}), 'utf8')
+await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'selfLearn', value: false })
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-off-' + i
+  feedToolCallTool('selflearn-off', callId, 'write', { path: slOffPath, content: 'x' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'selflearn-off', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slOffPath,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once')
+  assert.equal(nextCalls, 0, 'self-learning off still allows via Flash SAFE')
+}
+const noSelfLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(!noSelfLearned, 'explicit selfLearn=false creates no self-learned rule')
 
 console.log('smoke: ok')
