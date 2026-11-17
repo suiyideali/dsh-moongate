@@ -56,6 +56,8 @@ function aggregateProjectStats(events) {
     if (!ev || !Number.isInteger(ev.id)) continue
     const kind = String(ev.kind || '')
     if (kind === 'manual-pending') continue
+    // P0 止损观察不是审批决策，不能稀释按项目的自动率
+    if (kind === 'guard-candidate') continue
     const cwd = typeof ev.cwd === 'string' ? ev.cwd.trim() : ''
     const key = cwd || '\u0000unknown'
     let b = buckets.get(key)
@@ -351,6 +353,105 @@ function extractFiles(text) {
   return found.slice(0, 8)
 }
 
+// ── P0 执行止损观察（只记录，不改变任何审批结果）────────────────────────
+// 记录每个会话的签名重复次数；仅用于展示/后续 P1 阈值，不做阻断。
+const guardSessionState = new Map()
+const GUARD_SCRATCH_PREFIXES = ['/tmp/', '/private/tmp/', '/var/tmp/', '/private/var/tmp/', '/var/folders/', '/private/var/folders/']
+
+function isGuardScratchPath(p, cwd) {
+  const s = String(p || '')
+  if (!s) return false
+  // 项目本身位于临时目录时（测试/沙箱），项目内文件仍应计入预算
+  if (cwd && isPathWithin(s, cwd)) return false
+  const prefixes = GUARD_SCRATCH_PREFIXES.slice()
+  const envTmp = process.env.TMPDIR ? String(process.env.TMPDIR).replace(/\/+$/, '') + '/' : ''
+  if (envTmp) prefixes.push(envTmp)
+  return prefixes.some((prefix) => s === prefix.replace(/\/+$/, '') || s.startsWith(prefix))
+}
+
+function guardAbsPath(raw, cwd) {
+  let p = String(raw || '').trim()
+  if (!p || p.length > 300) return ''
+  if (p.startsWith('~/')) p = join(homedir(), p.slice(2))
+  else if (!p.startsWith('/')) p = join(cwd || '', p)
+  p = p.replace(/\/+/g, '/')
+  if (p.length > 1) p = p.replace(/\/+$/, '')
+  return p
+}
+
+/** 收集本次请求涉及的路径；排除临时目录（article 中的 scratch 文件教训）。 */
+function collectGuardPaths(toolName, argsText, justification, cwd) {
+  const found = []
+  const seen = new Set()
+  const add = (raw) => {
+    const p = guardAbsPath(raw, cwd)
+    if (!p || seen.has(p) || isGuardScratchPath(p, cwd)) return
+    seen.add(p)
+    found.push(p)
+  }
+  for (const f of extractFiles(justification)) add(f)
+  const args = parseToolArgs(argsText)
+  if (args && typeof args === 'object') {
+    const keys = ['path', 'file_path', 'file', 'target', 'files', 'paths', 'source', 'destination']
+    for (const key of keys) {
+      const v = args[key]
+      if (typeof v === 'string') add(v)
+      else if (Array.isArray(v)) v.forEach((x) => { if (typeof x === 'string') add(x) })
+    }
+  }
+  return { count: found.length, paths: found.slice(0, 8) }
+}
+
+/** 归一化签名：掩码 hex/host/引号内容/路径/数字，避免同一操作因参数变化被拆散。 */
+function maskGuardText(text) {
+  let s = String(text || '')
+  s = s.replace(/```[\s\S]*?```/g, ' <block> ')
+  s = s.replace(/\b[0-9a-fA-F]{8,}\b/g, '<id>')
+  s = s.replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g, '<host>')
+  s = s.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '<str>')
+  s = s.replace(/(?:~\/|\/|\.\/)[\w@.%+~/-]+/g, '<path>')
+  s = s.replace(/[\w@.-]+\.(?:md|js|json|ya?ml|env|txt|py|ts|css|html|log|mjs|cjs)\b/g, '<path>')
+  s = s.replace(/\b\d+(?:\.\d+)?\b/g, '<n>')
+  return s.replace(/\s+/g, ' ').trim().slice(0, 240)
+}
+
+function guardOperationSignature(toolName, mode, argsText, justification) {
+  let raw = ''
+  if (toolName === 'bash') {
+    const args = parseToolArgs(argsText)
+    raw = args && typeof args.command === 'string' ? args.command : (justification || '')
+  } else {
+    raw = argsText || justification || ''
+  }
+  return String(toolName || 'unknown') + '|' + String(mode || '') + '|' + maskGuardText(raw)
+}
+
+function observeGuardCandidate(sessionId, toolName, mode, justification, argsText, sessionCwd, commandCtx) {
+  if (config.guard !== true) return
+  try {
+    const signature = guardOperationSignature(toolName, mode, argsText, justification)
+    let st = guardSessionState.get(sessionId)
+    if (!st) {
+      st = { total: 0, sigs: new Map() }
+      guardSessionState.set(sessionId, st)
+      if (guardSessionState.size > 200) {
+        const oldest = guardSessionState.keys().next().value
+        if (oldest !== undefined) guardSessionState.delete(oldest)
+      }
+    }
+    const repeat = (st.sigs.get(signature) || 0) + 1
+    st.sigs.set(signature, repeat)
+    st.total += 1
+    const paths = collectGuardPaths(toolName, argsText, justification, sessionCwd)
+    recordApprovalEvent(sessionId, toolName, mode, '', justification, 'guard-candidate', {
+      kind: 'guard-candidate', path: 'guard-observe', args: argsText, cwd: sessionCwd,
+      commandPattern: commandCtx ? commandCtx.pattern : '',
+      guard: { signature, repeat, sessionTotal: st.total, files: paths.count, paths: paths.paths }
+    })
+    audit(`GUARD   ${toolName} mode=${mode || 'none'} repeat=${repeat} files=${paths.count}`)
+  } catch { /* 观察失败绝不阻断审批 */ }
+}
+
 /**
  * 记录一次审批事件（结构化，供 client 审查界面轮询展示）。
  * kind: 'auto'（自动放行）/ 'manual-pending'（转人工等待）/ 'manual-approved'（人工通过）/
@@ -385,6 +486,16 @@ function recordApprovalEvent(sessionId, toolName, mode, reason, justification, v
   if (o.commandPattern) ev.commandPattern = String(o.commandPattern).slice(0, 160)
   if (o.projectRoot) ev.projectRoot = String(o.projectRoot).slice(0, 500)
   if (o.wouldPath) ev.wouldPath = String(o.wouldPath).slice(0, 80)
+  if (o.guard && typeof o.guard === 'object') {
+    const g = o.guard
+    ev.guard = {
+      signature: String(g.signature || '').slice(0, 300),
+      repeat: Number(g.repeat) || 0,
+      sessionTotal: Number(g.sessionTotal) || 0,
+      files: Number(g.files) || 0,
+      paths: Array.isArray(g.paths) ? g.paths.slice(0, 8).map((x) => String(x).slice(0, 300)) : []
+    }
+  }
   // path：判定路径标识（hard-category / unknown-category / deny-rule / deny / flash-failed / neutral-reject / neutral-confirm）
   if (o.path) ev.path = o.path
   try {
@@ -462,6 +573,7 @@ function getRulesSnapshot() {
       graduationSessions: config.graduationSessions || 2,
       twoStage: config.twoStage === true,
       shadow: config.shadow === true,
+      guard: config.guard === true,
       semanticReuse: config.semanticReuse === true,
       denyEscalateConsecutive: config.denyEscalateConsecutive || 3,
       denyEscalateTotal: config.denyEscalateTotal || 20,
@@ -599,6 +711,13 @@ function applyRuleOp(op, kind, value) {
     return { ok: true, set: true, value: config.sessionMemory }
   }
 
+  if (kind === 'guard') {
+    if (op !== 'set') return { ok: false, error: 'guard 使用 set 操作' }
+    config.guard = value === true
+    saveJson(ALLOWLIST_PATH, config)
+    audit(`CONFIG  guard → ${config.guard}`)
+    return { ok: true, set: true, value: config.guard }
+  }
   if (kind === 'semanticReuse') {
     if (op !== 'set') return { ok: false, error: 'semanticReuse 使用 set 操作' }
     config.semanticReuse = value === true
@@ -821,6 +940,7 @@ function normalizeConfig(raw) {
   cfg.graduationSessions = Number.isFinite(cfg.graduationSessions) && cfg.graduationSessions > 0 ? cfg.graduationSessions : 2
   cfg.twoStage = cfg.twoStage === true
   cfg.shadow = cfg.shadow === true
+  cfg.guard = cfg.guard === true
   cfg.semanticReuse = cfg.semanticReuse === true
   cfg.denyEscalateConsecutive = Number.isFinite(cfg.denyEscalateConsecutive) && cfg.denyEscalateConsecutive > 0 ? cfg.denyEscalateConsecutive : 3
   cfg.denyEscalateTotal = Number.isFinite(cfg.denyEscalateTotal) && cfg.denyEscalateTotal > 0 ? cfg.denyEscalateTotal : 20
@@ -853,6 +973,7 @@ if (!config || typeof config !== 'object') {
     graduationSessions: 2,
     twoStage: false,
     shadow: false,
+    guard: false,
     semanticReuse: false,
     denyEscalateConsecutive: 3,
     denyEscalateTotal: 20,
@@ -2464,6 +2585,8 @@ export default {
         const commandPattern = commandCtx ? commandCtx.pattern : ''
         // Shadow 模式：命中“本可自动放行”时只记录候选，仍转人工；不写规则/学习/快照
         const shadowMode = config.shadow === true
+        // P0 执行止损观察：记录签名重复/文件数，不改变任何判定
+        observeGuardCandidate(sessionId, toolName, mode, justification, judgeArgs, sessionCwd, commandCtx)
 
         // 转人工统一处理：记录 pending → 交下游（web answerer）→ 记录终态事件（关闭提示条）
         const forwardToHuman = async (sid, tName, tMode, rsn, jst, cat, why) => {
