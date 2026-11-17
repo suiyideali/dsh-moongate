@@ -22,7 +22,7 @@ for (const service of ['llm', 'approval', 'permissionPresets', 'agentDefaultMode
 const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 assert.ok(client.includes("id: 'dsh-moongate'"), 'client module id matches package name')
 assert.ok(client.includes('function T(zh, en)'), 'client has i18n helper')
-for (const marker of ['记住这次操作', '取消记住', '⑥ 规则库', '学习与沉淀', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任', '知道了，开始使用', '自学习已开启', '以后项目内', 'ag-set-collapsed']) {
+for (const marker of ['记住这次操作', '取消记住', '⑥ 规则库', '学习与沉淀', '拒绝计数', '参数：', '自学习', 'Shadow 候选', '止损观察', '行内编辑', '按项目 / 目录', 'Approval audit', '只读命令', '项目信任', '知道了，开始使用', '自学习已开启', '以后项目内', 'ag-set-collapsed']) {
   assert.ok(client.includes(marker), `client bundle contains ${marker}`)
 }
 assert.ok(client.includes("className: 'ag-set', onClick: toggleSettingCard"), 'settings root wires collapse handler')
@@ -635,6 +635,79 @@ assert.ok(project.auto >= 1, 'project stats counts auto approvals')
 assert.ok(project.shadow >= 1, 'project stats counts shadow candidates')
 const unknown = projectStats.json.projects.find((p) => !p.path)
 assert.ok(unknown && unknown.name === '未知目录', 'project stats groups missing cwd as unknown')
+
+// P0 执行止损观察：只记录签名/重复/文件数，不改变审批结果。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  guard: true,
+  shadow: false,
+  allowRules: []
+}), 'utf8')
+nextCalls = 0
+feedToolCall('guard-test', 'call-guard-1', 'git status')
+const guardFirst = await approval(bashRequest('guard-test', 'call-guard-1', 'git status'), nextAllowed)
+assert.equal(guardFirst, 'allowed-once')
+assert.equal(nextCalls, 0, 'guard observation does not change read-only approval')
+nextCalls = 0
+feedToolCall('guard-test', 'call-guard-2', 'git status')
+const guardSecond = await approval(bashRequest('guard-test', 'call-guard-2', 'git status'), nextAllowed)
+assert.equal(guardSecond, 'allowed-once')
+assert.equal(nextCalls, 0, 'guard observation keeps read-only behavior')
+const guardEvents = readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-test')
+assert.equal(guardEvents.length, 2, 'one guard event per approval request')
+assert.ok(guardEvents[0].guard && guardEvents[0].guard.signature.includes('git status'), 'guard event records operation signature')
+assert.equal(guardEvents[0].guard.repeat, 1, 'first guard candidate repeat is 1')
+assert.equal(guardEvents[1].guard.repeat, 2, 'second identical candidate repeat is 2')
+assert.equal(guardEvents[1].guard.files, 0, 'read-only command has no file budget')
+assert.ok(!readEvents().some((ev) => ev.kind === 'auto' && ev.guard), 'guard data is not attached to auto events')
+// 文件预算：只统计项目内路径，/tmp 等临时目录不计入。
+const guardProjectCwd = join(cwd, 'guard-project')
+mkdirSync(guardProjectCwd, { recursive: true })
+const snapshotsPath = join(dataDir, 'snapshots')
+const snapshotsBefore = existsSync(snapshotsPath) ? readdirSync(snapshotsPath).length : 0
+feedToolCallTool('guard-paths', 'call-guard-paths', 'write', { files: [join(guardProjectCwd, 'a.js'), '/tmp/scratch.txt'] })
+nextCalls = 0
+const guardPathOut = await approval({
+  agent: { session: { id: 'guard-paths', cwd: guardProjectCwd } },
+  toolName: 'write',
+  callId: 'call-guard-paths',
+  reason: 'escalate sandbox to workspace-write: write project files',
+}, nextAllowed)
+assert.equal(guardPathOut, 'allowed-once')
+assert.equal(nextCalls, 1, 'guard does not change write approval')
+const guardPathEvent = readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-paths').pop()
+assert.ok(guardPathEvent, 'guard records write request')
+assert.equal(guardPathEvent.guard.files, 1, 'guard counts project file')
+assert.deepEqual(guardPathEvent.guard.paths, [join(guardProjectCwd, 'a.js')], 'guard excludes scratch paths')
+const snapshotsAfter = existsSync(snapshotsPath) ? readdirSync(snapshotsPath).length : 0
+assert.equal(snapshotsAfter, snapshotsBefore, 'guard event does not create snapshots')
+const statsWithGuard = await callApi('/api/auto-approve/project-stats', 'GET')
+const guardProject = statsWithGuard.json.projects.find((p) => p.path === guardProjectCwd)
+assert.ok(guardProject, 'project stats includes the guard project decision')
+assert.equal(guardProject.total, 1, 'project stats ignores the guard observation event')
+assert.equal(guardProject.auto, 0, 'guard event is not counted as auto')
+// 同一文件再次修改：签名不变，repeat 递增（文件内容变化不应拆散签名）。
+feedToolCallTool('guard-paths', 'call-guard-paths-2', 'write', { files: [join(guardProjectCwd, 'a.js')], content: 'different content' })
+nextCalls = 0
+await approval({
+  agent: { session: { id: 'guard-paths', cwd: guardProjectCwd } },
+  toolName: 'write',
+  callId: 'call-guard-paths-2',
+  reason: 'escalate sandbox to workspace-write: write project files',
+}, nextAllowed)
+const guardPathEvents = readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-paths')
+assert.equal(guardPathEvents.length, 2, 'second file request recorded')
+assert.equal(guardPathEvents[1].guard.repeat, 2, 'same file signature increments repeat')
+assert.equal(guardPathEvents[1].guard.signature, guardPathEvents[0].guard.signature, 'file content does not change signature')
+const guardCfg = await callApi('/api/auto-approve/rules', 'GET')
+assert.equal(guardCfg.json.config.guard, true, 'guard config exposed')
+const guardOff = await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'guard', value: false })
+assert.equal(guardOff.status, 200, 'guard toggle accepted')
+nextCalls = 0
+feedToolCall('guard-test-2', 'call-guard-3', 'git status')
+const guardDisabled = await approval(bashRequest('guard-test-2', 'call-guard-3', 'git status'), nextAllowed)
+assert.equal(guardDisabled, 'allowed-once')
+assert.equal(readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-test-2').length, 0, 'guard off produces no events')
 
 const patchPath = new URL('../patches/dsh-approval-gate@0.5.0.patch', import.meta.url)
 assert.ok(existsSync(patchPath), 'fork patch present')

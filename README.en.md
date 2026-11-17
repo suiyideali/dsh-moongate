@@ -79,7 +79,8 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Reject escalation** | 3 consecutive / 20 total rejections → `escalate` event and a red "needs human" badge |
 | **Two-stage judging** | Fast `ALLOW/REVIEW` screen + deep re-check; off by default |
 | **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots; repeated candidates are grouped by command/directory with one-click rule suggestions |
-| **Approval dashboard** | Stat cards, distribution bar, 7-day trend, top tools, per-project aggregation, filters/search, date-grouped timeline |
+| **Stop-loss observation (P0)** | Records an operation signature, repeat count and touched-file count (scratch directories excluded) on every approval; observation only — no blocking, rules or learning writes; feeds P1 thresholds |
+| **Approval dashboard** | Stat cards, five-segment decision mix plus a separate observation count, 7-day trend, top tools, per-project aggregation, filters/search, date-grouped timeline |
 | **UI language** | Follows the browser language and switches between Chinese and English (records, settings, notice strip and main errors) |
 
 ## Install
@@ -187,11 +188,11 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 | Area | What it shows | Question it answers |
 | --- | --- | --- |
 | **Needs attention** | Rejected + escalated summary (only shown when such records exist), with a "show only these" action | Is there anything I need to handle? |
-| **Overview** (expanded by default, collapsible) | Five stat cards: auto / Shadow / manual / rejected / needs-human, with percentages | What is the approval mix in this session? |
-| | Four-segment distribution bar + rule overview: total / self-learned / graduated / trust roots | How much is automated, and how much has been learned? |
+| **Overview** (expanded by default, collapsible) | Five decision cards (auto / Shadow / manual / rejected / needs-human, with percentages) plus a separate stop-loss observation count | What is the approval mix in this session? |
+| | Six-segment distribution bar + rule overview: total / self-learned / graduated / trust roots | How much is automated, and how much has been learned? |
 | | 7-day approval trend + top tools | When, and with which tools, do approvals happen? |
 | | Per-project/directory aggregation (all sessions): name, path, auto-rate bar, total/auto/rejected/Shadow | Which projects trigger approvals most, and how automated are they? |
-| **Filters** | All / auto / manual / rejected / escalated / attention chips + search over tool, reason and arguments | Find a class of records quickly |
+| **Filters** | All / auto / Shadow / stop-loss observation / manual / rejected / escalated / attention chips + search over tool, reason and arguments | Find a class of records quickly |
 | **Timeline** | Date-grouped rows with tool, verdict tag, time, reason, real arguments, remember/forget, files and diff snapshots | What exactly happened, why was it allowed, and can I undo it? |
 
 > The overview is expanded by default so the stats come first; collapse it to prioritize the timeline. Rows with a snapshot show "已保留改动快照 · 可在下方 diff 中撤销", keeping the undo path next to the decision.
@@ -204,12 +205,12 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 
 The approval view embeds the full Auto approval settings; this is the **only entry point**:
 
-- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / ⑤ Learning & sedimentation / ⑥ Rule library;
+- sticky sub-navigation: Setup / Pipeline / ① DENY / ② Allowlist / ③ denyRules / ④ Flash / Shadow / Stop-loss observation / ⑤ Learning & sedimentation / ⑥ Rule library;
 - click to scroll to the card; changes apply hot without leaving the view;
 - click a card title to collapse / expand it (collapsed by default); clicking a top chip expands then scrolls.
 - the DSH global Settings page no longer duplicates the Auto approval entry; configure everything from the Approval tab.
 
-Seven configuration cards:
+Eight configuration cards:
 
 | Card | Content |
 | --- | --- |
@@ -218,10 +219,13 @@ Seven configuration cards:
 | ③ denyRules | Permanently manual rules |
 | ④ Flash | `judgeTimeoutMs` |
 | Shadow | Observation toggle; candidates are recorded, not auto-approved |
+| Stop-loss observation | P0 observation toggle; records signature/repeats/files without changing approval outcomes |
 | ⑤ Learning & sedimentation | `riskyThreshold`, manual-confirmation keys/threshold + session memory, promotion, graduation, self-learning, two-stage, semantic reuse |
 | ⑥ Rule library | Unified rule management + inline editing + health check + export |
 
 > **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
+
+> **Stop-loss observation (P0)**: `guard` is observation-only. When enabled, every approval adds a `guard-candidate` event with an `operationSignature`, same-signature repeat count, touched-file count (`/tmp`, `/private/var/folders` and similar scratch dirs excluded) and cwd. Approval outcomes, rules, learning counters and snapshots are unchanged. Filter by “Stop-loss observation” in Records; P1 will derive soft thresholds from this data.
 
 ## How it works
 
@@ -294,6 +298,7 @@ Everything lives in `~/.dsh/auto-approve/`; edits to `allowlist.json` are hot-re
 | `selfLearnMaxRules` | 50 | Self-learned rule cap |
 | `twoStage` | false | Two-stage judging switch |
 | `shadow` | false | Shadow observation mode; candidates are recorded but not auto-approved |
+| `guard` | false | P0 stop-loss observation; records signature/repeats/files without changing outcomes |
 | `semanticReuse` | false | After one manual approval, semantically verify similar neutral operations with Flash; no rule sedimentation |
 | `stage1Provider` / `stage1Model` | empty | Fast-screen model |
 | `denyEscalateConsecutive` | 3 | Consecutive rejection escalation |
@@ -337,6 +342,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 - [x] i18n (follows the browser language; main UI in Chinese/English);
 - [x] Command-intent learning (safe bash commands + cwd get separate counters/rules; unrecognized commands are not learned);
 - [x] Shadow candidate grouping and rule suggestions (same command/directory candidates aggregate; create a rule manually);
+- [x] P0 stop-loss observation (signature/repeat/file-count recording, observe-only);
 - [x] First-use read-only fast path (strictly read-only, inside cwd, no pipes/redirection, no setup).
 - [x] Project-level trust: allow edit/write and recognized test/build inside a project root; push/network/deletion still ask.
 - [x] Onboarding and default self-learning: a first-run note explains cross-session learning; self-learning defaults to 3 SAFE verdicts / 1 session.
