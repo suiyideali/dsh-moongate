@@ -415,21 +415,26 @@ function maskGuardText(text) {
   return s.replace(/\s+/g, ' ').trim().slice(0, 240)
 }
 
-function guardOperationSignature(toolName, mode, argsText, justification) {
+function guardOperationSignature(toolName, mode, argsText, justification, cwd) {
   let raw = ''
   if (toolName === 'bash') {
     const args = parseToolArgs(argsText)
     raw = args && typeof args.command === 'string' ? args.command : (justification || '')
-  } else {
-    raw = argsText || justification || ''
+    return String(toolName || 'unknown') + '|' + String(mode || '') + '|' + maskGuardText(raw)
   }
+  // 文件类工具按“归一化路径”签名：同一文件反复改才算 repeat，内容变化不会拆散
+  const paths = collectGuardPaths(toolName, argsText, justification, cwd)
+  if (paths.count > 0) {
+    return String(toolName || 'unknown') + '|' + String(mode || '') + '|paths:' + paths.paths.slice().sort().join(',')
+  }
+  raw = argsText || justification || ''
   return String(toolName || 'unknown') + '|' + String(mode || '') + '|' + maskGuardText(raw)
 }
 
 function observeGuardCandidate(sessionId, toolName, mode, justification, argsText, sessionCwd, commandCtx) {
   if (config.guard !== true) return
   try {
-    const signature = guardOperationSignature(toolName, mode, argsText, justification)
+    const signature = guardOperationSignature(toolName, mode, argsText, justification, sessionCwd)
     let st = guardSessionState.get(sessionId)
     if (!st) {
       st = { total: 0, sigs: new Map() }
@@ -439,6 +444,7 @@ function observeGuardCandidate(sessionId, toolName, mode, justification, argsTex
         if (oldest !== undefined) guardSessionState.delete(oldest)
       }
     }
+    if (st.sigs.size > 500 && !st.sigs.has(signature)) st.sigs.delete(st.sigs.keys().next().value)
     const repeat = (st.sigs.get(signature) || 0) + 1
     st.sigs.set(signature, repeat)
     st.total += 1
@@ -455,7 +461,7 @@ function observeGuardCandidate(sessionId, toolName, mode, justification, argsTex
 /**
  * 记录一次审批事件（结构化，供 client 审查界面轮询展示）。
  * kind: 'auto'（自动放行）/ 'manual-pending'（转人工等待）/ 'manual-approved'（人工通过）/
- *       'manual-rejected'（人工拒绝）
+ *       'manual-rejected'（人工拒绝）/ 'guard-candidate'（P0 止损观察，不参与判定）
  * learningCount/threshold：人工通过时的学习进度（n/3）
  */
 function recordApprovalEvent(sessionId, toolName, mode, reason, justification, verdict, opts) {

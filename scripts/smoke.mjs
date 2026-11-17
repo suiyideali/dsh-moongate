@@ -661,10 +661,14 @@ assert.equal(guardEvents[1].guard.repeat, 2, 'second identical candidate repeat 
 assert.equal(guardEvents[1].guard.files, 0, 'read-only command has no file budget')
 assert.ok(!readEvents().some((ev) => ev.kind === 'auto' && ev.guard), 'guard data is not attached to auto events')
 // 文件预算：只统计项目内路径，/tmp 等临时目录不计入。
-feedToolCallTool('guard-paths', 'call-guard-paths', 'write', { files: [join(cwd, 'a.js'), '/tmp/scratch.txt'] })
+const guardProjectCwd = join(cwd, 'guard-project')
+mkdirSync(guardProjectCwd, { recursive: true })
+const snapshotsPath = join(dataDir, 'snapshots')
+const snapshotsBefore = existsSync(snapshotsPath) ? readdirSync(snapshotsPath).length : 0
+feedToolCallTool('guard-paths', 'call-guard-paths', 'write', { files: [join(guardProjectCwd, 'a.js'), '/tmp/scratch.txt'] })
 nextCalls = 0
 const guardPathOut = await approval({
-  agent: { session: { id: 'guard-paths', cwd } },
+  agent: { session: { id: 'guard-paths', cwd: guardProjectCwd } },
   toolName: 'write',
   callId: 'call-guard-paths',
   reason: 'escalate sandbox to workspace-write: write project files',
@@ -674,7 +678,27 @@ assert.equal(nextCalls, 1, 'guard does not change write approval')
 const guardPathEvent = readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-paths').pop()
 assert.ok(guardPathEvent, 'guard records write request')
 assert.equal(guardPathEvent.guard.files, 1, 'guard counts project file')
-assert.deepEqual(guardPathEvent.guard.paths, [join(cwd, 'a.js')], 'guard excludes scratch paths')
+assert.deepEqual(guardPathEvent.guard.paths, [join(guardProjectCwd, 'a.js')], 'guard excludes scratch paths')
+const snapshotsAfter = existsSync(snapshotsPath) ? readdirSync(snapshotsPath).length : 0
+assert.equal(snapshotsAfter, snapshotsBefore, 'guard event does not create snapshots')
+const statsWithGuard = await callApi('/api/auto-approve/project-stats', 'GET')
+const guardProject = statsWithGuard.json.projects.find((p) => p.path === guardProjectCwd)
+assert.ok(guardProject, 'project stats includes the guard project decision')
+assert.equal(guardProject.total, 1, 'project stats ignores the guard observation event')
+assert.equal(guardProject.auto, 0, 'guard event is not counted as auto')
+// 同一文件再次修改：签名不变，repeat 递增（文件内容变化不应拆散签名）。
+feedToolCallTool('guard-paths', 'call-guard-paths-2', 'write', { files: [join(guardProjectCwd, 'a.js')], content: 'different content' })
+nextCalls = 0
+await approval({
+  agent: { session: { id: 'guard-paths', cwd: guardProjectCwd } },
+  toolName: 'write',
+  callId: 'call-guard-paths-2',
+  reason: 'escalate sandbox to workspace-write: write project files',
+}, nextAllowed)
+const guardPathEvents = readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-paths')
+assert.equal(guardPathEvents.length, 2, 'second file request recorded')
+assert.equal(guardPathEvents[1].guard.repeat, 2, 'same file signature increments repeat')
+assert.equal(guardPathEvents[1].guard.signature, guardPathEvents[0].guard.signature, 'file content does not change signature')
 const guardCfg = await callApi('/api/auto-approve/rules', 'GET')
 assert.equal(guardCfg.json.config.guard, true, 'guard config exposed')
 const guardOff = await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'guard', value: false })

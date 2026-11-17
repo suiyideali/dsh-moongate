@@ -80,7 +80,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Two-stage judging** | Fast `ALLOW/REVIEW` screen + deep re-check; off by default |
 | **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots; repeated candidates are grouped by command/directory with one-click rule suggestions |
 | **Stop-loss observation (P0)** | Records an operation signature, repeat count and touched-file count (scratch directories excluded) on every approval; observation only — no blocking, rules or learning writes; feeds P1 thresholds |
-| **Approval dashboard** | Stat cards, six-segment distribution, 7-day trend, top tools, per-project aggregation, filters/search, date-grouped timeline |
+| **Approval dashboard** | Stat cards, five-segment decision mix plus a separate observation count, 7-day trend, top tools, per-project aggregation, filters/search, date-grouped timeline |
 | **UI language** | Follows the browser language and switches between Chinese and English (records, settings, notice strip and main errors) |
 
 ## Install
@@ -188,7 +188,7 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 | Area | What it shows | Question it answers |
 | --- | --- | --- |
 | **Needs attention** | Rejected + escalated summary (only shown when such records exist), with a "show only these" action | Is there anything I need to handle? |
-| **Overview** (expanded by default, collapsible) | Six stat cards: auto / Shadow / stop-loss observation / manual / rejected / needs-human, with percentages | What is the approval mix in this session? |
+| **Overview** (expanded by default, collapsible) | Five decision cards (auto / Shadow / manual / rejected / needs-human, with percentages) plus a separate stop-loss observation count | What is the approval mix in this session? |
 | | Six-segment distribution bar + rule overview: total / self-learned / graduated / trust roots | How much is automated, and how much has been learned? |
 | | 7-day approval trend + top tools | When, and with which tools, do approvals happen? |
 | | Per-project/directory aggregation (all sessions): name, path, auto-rate bar, total/auto/rejected/Shadow | Which projects trigger approvals most, and how automated are they? |

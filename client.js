@@ -445,10 +445,13 @@ window.__ModuleLoader__.load({
             fetchEvents(sessionId, sinceRef.current).then(function (evs) {
               if (!alive) return
               if (evs.length === 0) return
-              const last = evs[evs.length - 1]
+              // 观察事件不是判定结果，不弹审批提示条；游标仍推进到最后一条
+              const visible = evs.filter(function (ev) { return (ev.kind || 'auto') !== 'guard-candidate' })
+              sinceRef.current = evs[evs.length - 1].id
+              if (visible.length === 0) return
+              const last = visible[visible.length - 1]
               if (!last || last.id <= lastShownIdRef.current) return
               lastShownIdRef.current = last.id
-              sinceRef.current = last.id
               const kind = last.kind || 'auto'
               setNotice(last)
               // pending（等待人工审批）不自动收起；其余按类型定时收起
@@ -959,7 +962,6 @@ window.__ModuleLoader__.load({
       // 止损观察不是审批决策：决策类百分比用“去掉 guard 的分母”，避免观察期稀释自动率
       const decisionTotal = Math.max(0, total - counts.guard)
       const pct = function (n) { return decisionTotal ? Math.round(n * 100 / decisionTotal) : 0 }
-      const pctAll = function (n) { return total ? Math.round(n * 100 / total) : 0 }
       const rulesCfg = (rulesSnap && rulesSnap.config) || {}
       const allowRules = rulesCfg.allowRules || []
       const trustRoots = rulesCfg.trustRoots || []
@@ -998,10 +1000,11 @@ window.__ModuleLoader__.load({
       }
       const trendMap = {}
       trend.forEach(function (t) { trendMap[t.key] = t })
-      rows.forEach(function (ev) { const k = dayKey(ev.ts); if (trendMap[k]) trendMap[k].count += 1 })
+      const decisionRows = rows.filter(function (ev) { return (ev.kind || 'auto') !== 'guard-candidate' })
+      decisionRows.forEach(function (ev) { const k = dayKey(ev.ts); if (trendMap[k]) trendMap[k].count += 1 })
       const trendMax = Math.max.apply(null, trend.map(function (t) { return t.count }).concat([1]))
       const toolCounts = {}
-      rows.forEach(function (ev) { const t = ev.tool || 'tool'; toolCounts[t] = (toolCounts[t] || 0) + 1 })
+      decisionRows.forEach(function (ev) { const t = ev.tool || 'tool'; toolCounts[t] = (toolCounts[t] || 0) + 1 })
       const topTools = Object.keys(toolCounts).map(function (t) { return { tool: t, count: toolCounts[t] } }).sort(function (a, b) { return b.count - a.count }).slice(0, 5)
       const topMax = topTools.length ? topTools[0].count : 1
       const chips = [
@@ -1220,7 +1223,7 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'ag-stat-grid ag-stat-grid-primary' },
             stat(T('自动放行','Auto-approved'), counts.auto, pct(counts.auto) + '% · Flash / 规则'),
             stat(T('Shadow 候选','Shadow candidates'), counts.shadow, pct(counts.shadow) + '% · 仅观察'),
-            stat(T('止损观察','Stop-loss observation'), counts.guard, pctAll(counts.guard) + '% · 仅记录'),
+            stat(T('止损观察','Stop-loss observation'), counts.guard, T('仅记录，不计入审批','recorded only')),
             stat(T('人工通过','Approved by you'), counts.approved, pct(counts.approved) + '%'),
             stat(T('已拒绝','Rejected'), counts.rejected, pct(counts.rejected) + '%'),
             stat(T('需人工介入','Needs human attention'), counts.escalate, pct(counts.escalate) + '%'),
@@ -1230,7 +1233,6 @@ window.__ModuleLoader__.load({
             React.createElement('div', { className: 'ag-dist-bar' },
               distSeg(counts.auto, 'var(--dsw-alias-state-success-primary)'),
               distSeg(counts.shadow, 'var(--dsw-alias-state-business-primary)'),
-              distSeg(counts.guard, 'color-mix(in srgb,var(--dsw-alias-state-warn-primary) 55%,var(--dsw-alias-state-business-primary))'),
               distSeg(counts.approved, 'var(--dsw-alias-state-warn-primary)'),
               distSeg(counts.rejected, 'var(--dsw-alias-state-error-primary)'),
               distSeg(counts.escalate, 'var(--dsw-alias-state-error-label)'),
@@ -1238,11 +1240,11 @@ window.__ModuleLoader__.load({
             React.createElement('div', { className: 'ag-dist-legend' },
               React.createElement('span', null, '自动 ' + counts.auto),
               React.createElement('span', null, 'Shadow ' + counts.shadow),
-              React.createElement('span', null, '止损 ' + counts.guard),
               React.createElement('span', null, '人工 ' + counts.approved),
               React.createElement('span', null, '拒绝 ' + counts.rejected),
               React.createElement('span', null, '升级 ' + counts.escalate),
             ),
+            counts.guard > 0 ? React.createElement('div', { className: 'ag-dash-hint' }, T('止损观察 ','Stop-loss observation ') + counts.guard + T(' 条（仅记录，不计入上面的审批构成）',' (recorded only, excluded from the decision mix)')) : null,
           ),
           React.createElement('div', { className: 'ag-substat-grid' },
             substat(T('规则总数','Rules'), ruleStats.total),
@@ -1902,7 +1904,7 @@ window.__ModuleLoader__.load({
             React.createElement('span', { className: 'ag-set-item-meta' }, '止损观察：'),
             switchToggle(cfg.guard === true, function () { api({ op: 'set', kind: 'guard', value: !(cfg.guard === true) }) }, '执行止损观察'),
             React.createElement('span', { className: 'ag-set-item-meta' },
-              cfg.guard === true ? '观察中：仅记录候选，审批结果不变' : '当前关闭：不记录止损观察事件'),
+              cfg.guard === true ? '观察中：仅记录观察事件，审批结果不变' : '当前关闭：不记录止损观察事件'),
           ),
           React.createElement('div', { className: 'ag-set-row' },
             React.createElement('span', { className: 'ag-set-item-meta' },
