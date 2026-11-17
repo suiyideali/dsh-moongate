@@ -956,7 +956,10 @@ window.__ModuleLoader__.load({
       const counts = { auto: 0, approved: 0, rejected: 0, escalate: 0, shadow: 0, guard: 0 }
       rows.forEach(function (ev) { counts[kindKey(ev)] = (counts[kindKey(ev)] || 0) + 1 })
       const total = rows.length
-      const pct = function (n) { return total ? Math.round(n * 100 / total) : 0 }
+      // 止损观察不是审批决策：决策类百分比用“去掉 guard 的分母”，避免观察期稀释自动率
+      const decisionTotal = Math.max(0, total - counts.guard)
+      const pct = function (n) { return decisionTotal ? Math.round(n * 100 / decisionTotal) : 0 }
+      const pctAll = function (n) { return total ? Math.round(n * 100 / total) : 0 }
       const rulesCfg = (rulesSnap && rulesSnap.config) || {}
       const allowRules = rulesCfg.allowRules || []
       const trustRoots = rulesCfg.trustRoots || []
@@ -1217,7 +1220,7 @@ window.__ModuleLoader__.load({
           React.createElement('div', { className: 'ag-stat-grid ag-stat-grid-primary' },
             stat(T('自动放行','Auto-approved'), counts.auto, pct(counts.auto) + '% · Flash / 规则'),
             stat(T('Shadow 候选','Shadow candidates'), counts.shadow, pct(counts.shadow) + '% · 仅观察'),
-            stat(T('止损观察','Stop-loss observation'), counts.guard, pct(counts.guard) + '% · 仅记录'),
+            stat(T('止损观察','Stop-loss observation'), counts.guard, pctAll(counts.guard) + '% · 仅记录'),
             stat(T('人工通过','Approved by you'), counts.approved, pct(counts.approved) + '%'),
             stat(T('已拒绝','Rejected'), counts.rejected, pct(counts.rejected) + '%'),
             stat(T('需人工介入','Needs human attention'), counts.escalate, pct(counts.escalate) + '%'),
@@ -1227,7 +1230,7 @@ window.__ModuleLoader__.load({
             React.createElement('div', { className: 'ag-dist-bar' },
               distSeg(counts.auto, 'var(--dsw-alias-state-success-primary)'),
               distSeg(counts.shadow, 'var(--dsw-alias-state-business-primary)'),
-              distSeg(counts.guard, 'var(--dsw-alias-state-warn-primary)'),
+              distSeg(counts.guard, 'color-mix(in srgb,var(--dsw-alias-state-warn-primary) 55%,var(--dsw-alias-state-business-primary))'),
               distSeg(counts.approved, 'var(--dsw-alias-state-warn-primary)'),
               distSeg(counts.rejected, 'var(--dsw-alias-state-error-primary)'),
               distSeg(counts.escalate, 'var(--dsw-alias-state-error-label)'),
