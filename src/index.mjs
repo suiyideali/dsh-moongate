@@ -32,7 +32,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, readdirSync, statSync, rmSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, basename, dirname } from 'node:path'
+import { join, basename, dirname, isAbsolute, sep } from 'node:path'
 
 const NAME = 'dsh-moongate'  // 包/仓库更名；数据目录仍为 auto-approve 以兼容上游
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
@@ -43,7 +43,27 @@ const AUDIT_PATH = join(DATA_DIR, 'audit.log')
 const EVENTS_PATH = join(DATA_DIR, 'events.jsonl')
 const MEMORY_PATH = join(DATA_DIR, 'memory.json')
 const SNAPSHOTS_DIR = join(DATA_DIR, 'snapshots')
-const PROFILE_PATCH_PATH = join(DSH_HOME, 'profiles', 'web', 'cordis.patch.yml')
+// 插件运行在哪个 profile，就写到哪个 profile 的补丁层。Desktop 的 profile 是
+// `desktop`，但旧代码硬编码成 `web`，导致“一键配置权限预设”写错文件、下拉框
+// 永远看不到 auto-approve。
+// Desktop 主进程由 Electron 启动时不会把 profile 注入环境变量，只把 profile
+// 目录作为 argv 传入，所以还要从 argv 里识别 `.../profiles/<name>`。
+function detectProfileDirFromArgv() {
+  for (const arg of process.argv.slice(2)) {
+    if (typeof arg !== 'string' || !isAbsolute(arg)) continue
+    if (!arg.split(sep).includes('profiles')) continue
+    try { if (existsSync(join(arg, 'package.json')) || existsSync(join(arg, 'cordis.patch.yml'))) return arg } catch {}
+  }
+  return null
+}
+function envProfileDir() {
+  if (process.env.DSH_PROFILE_DIR) return process.env.DSH_PROFILE_DIR
+  if (process.env.DSH_PROFILE) return join(DSH_HOME, 'profiles', process.env.DSH_PROFILE)
+  return null
+}
+const PROFILE_DIR = envProfileDir() || detectProfileDirFromArgv() || join(DSH_HOME, 'profiles', 'web')
+const PROFILE_PATCH_PATH = join(PROFILE_DIR, 'cordis.patch.yml')
+const PROFILE_NAME = process.env.DSH_PROFILE || basename(PROFILE_DIR)
 
 // 快照限制：单文件 ≤256KB、每事件 ≤5 个文件
 const SNAPSHOT_MAX_BYTES = 256 * 1024
@@ -612,9 +632,9 @@ function getRulesSnapshot() {
 function getSetupState() {
   try {
     const text = readFileSync(PROFILE_PATCH_PATH, 'utf8')
-    return { configured: text.includes('auto-approve:'), patchPath: PROFILE_PATCH_PATH }
+    return { configured: text.includes('auto-approve:'), patchPath: PROFILE_PATCH_PATH, profile: PROFILE_NAME }
   } catch (e) {
-    return { configured: false, patchPath: PROFILE_PATCH_PATH, error: String((e && e.message) || e) }
+    return { configured: false, patchPath: PROFILE_PATCH_PATH, profile: PROFILE_NAME, error: String((e && e.message) || e) }
   }
 }
 

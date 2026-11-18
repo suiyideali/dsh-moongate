@@ -1570,7 +1570,7 @@ window.__ModuleLoader__.load({
           .then(function (res) {
             if (res && res.ok) {
               if (res.status === 'already') showFeedback('权限预设已配置，无需操作')
-              else showFeedback('已写入 cordis.patch.yml，请重启 dsh web 生效（status=' + res.status + '）')
+              else showFeedback('已写入 cordis.patch.yml，请重启 DSH 生效（status=' + res.status + '）')
             } else {
               showFeedback((res && res.error) || '初始化失败', false)
             }
@@ -1693,7 +1693,7 @@ window.__ModuleLoader__.load({
             React.createElement('div', { className: 'ag-set-card-title' }, '初始化权限预设'),
             React.createElement('p', { className: 'ag-set-card-sub' },
               '安装后需在 profile 的 cordis.patch.yml 添加 auto-approve 权限预设（预设表在配置构造时冻结，无法自动扩展）。' +
-              (setup.configured ? '当前已配置 ✓' : '当前未检测到，可一键写入。'))),
+              (setup.configured ? '当前已配置 ✓' : '当前未检测到，可一键写入当前 profile' + (setup.profile ? '（' + setup.profile + '）' : '') + '。'))),
           React.createElement('div', { className: 'ag-set-row' },
             React.createElement('button', {
               type: 'button',

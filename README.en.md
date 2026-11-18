@@ -106,6 +106,7 @@ No CLI needed. In the DSH sidebar:
    ```
 
 4. Click **Install**, then **Enable now** when the install finishes, and reload/refresh when prompted.
+5. Open **Approval → Settings → Permission preset**, click **Configure permission preset**, then restart DSH. Or add it manually to the profile `cordis.patch.yml` as described below.
 
 > The dialog also accepts an npm package name, a tarball, or an absolute local path. This example uses the Git address, so no npm release is required. The Desktop `desktop` profile is managed by the app, so the in-app plugin manager is the correct install path there.
 
@@ -144,7 +145,7 @@ pnpm install
 
 ### Permission preset (required for all install options)
 
-The preset table is frozen at composition time; add one entry to the profile `cordis.patch.yml`:
+The preset table is frozen at composition time. After installing, use **Approval → Settings → Permission preset → Configure permission preset** (it writes the currently running profile; restart DSH to apply), or add the entry manually to the profile `cordis.patch.yml`:
 
 ```yaml
 - id: permission

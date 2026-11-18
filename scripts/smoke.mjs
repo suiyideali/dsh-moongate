@@ -8,6 +8,23 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-approval-gate-test-'))
+// 权限预设写入的是“当前 profile”的补丁层，不能再写死 profiles/web。
+const testProfileDir = join(process.env.DSH_HOME, 'profiles', 'desktop')
+mkdirSync(testProfileDir, { recursive: true })
+writeFileSync(join(testProfileDir, 'package.json'), '{}')
+writeFileSync(join(testProfileDir, 'cordis.patch.yml'), `- id: permission
+  name: '@deepseek-ai/dsh-permission-presets'
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+`, 'utf8')
+// Desktop 主进程不设置 DSH_PROFILE_DIR，只把 profile 目录作为 argv 传入；
+// 这里模拟该启动方式，验证插件能从 argv 识别当前 profile。
+delete process.env.DSH_PROFILE
+delete process.env.DSH_PROFILE_DIR
+process.argv.push(testProfileDir)
 
 const mod = await import('../src/index.mjs')
 const plugin = mod.default
@@ -88,6 +105,21 @@ const callApi = async (path, method, body) => {
   await handler(req, res)
   return { status, text, json: text ? JSON.parse(text) : null }
 }
+
+// 一键配置权限预设必须写入当前 profile（desktop），而不是硬编码的 profiles/web。
+const setupBefore = await callApi('/api/auto-approve/setup', 'GET')
+assert.equal(setupBefore.status, 200, 'setup endpoint registered')
+assert.equal(setupBefore.json.configured, false, 'preset initially absent')
+assert.equal(setupBefore.json.patchPath, join(testProfileDir, 'cordis.patch.yml'), 'setup targets the profile from argv')
+assert.equal(setupBefore.json.profile, 'desktop', 'setup reports the detected profile')
+const setupPost = await callApi('/api/auto-approve/setup', 'POST')
+assert.equal(setupPost.status, 200, 'setup POST works')
+assert.equal(setupPost.json.status, 'added-preset', 'setup inserts preset')
+assert.equal(setupPost.json.needRestart, true, 'setup asks for restart')
+assert.ok(readFileSync(join(testProfileDir, 'cordis.patch.yml'), 'utf8').includes('auto-approve:'), 'preset written to the active profile')
+assert.ok(!existsSync(join(process.env.DSH_HOME, 'profiles', 'web', 'cordis.patch.yml')), 'setup does not write profiles/web')
+const setupAgain = await callApi('/api/auto-approve/setup', 'POST')
+assert.equal(setupAgain.json.status, 'already', 'setup is idempotent')
 
 const initialRules = await callApi('/api/auto-approve/rules', 'GET')
 assert.equal(initialRules.status, 200, 'rules endpoint during onboarding test')
