@@ -11,6 +11,7 @@ process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-approval-gate-test-'))
 // 权限预设写入的是“当前 profile”的补丁层，不能再写死 profiles/web。
 const testProfileDir = join(process.env.DSH_HOME, 'profiles', 'desktop')
 mkdirSync(testProfileDir, { recursive: true })
+writeFileSync(join(testProfileDir, 'package.json'), '{}')
 writeFileSync(join(testProfileDir, 'cordis.patch.yml'), `- id: permission
   name: '@deepseek-ai/dsh-permission-presets'
   config:
@@ -19,8 +20,11 @@ writeFileSync(join(testProfileDir, 'cordis.patch.yml'), `- id: permission
         sandbox: read-only
         approval: ask
 `, 'utf8')
-process.env.DSH_PROFILE = 'desktop'
-process.env.DSH_PROFILE_DIR = testProfileDir
+// Desktop 主进程不设置 DSH_PROFILE_DIR，只把 profile 目录作为 argv 传入；
+// 这里模拟该启动方式，验证插件能从 argv 识别当前 profile。
+delete process.env.DSH_PROFILE
+delete process.env.DSH_PROFILE_DIR
+process.argv.push(testProfileDir)
 
 const mod = await import('../src/index.mjs')
 const plugin = mod.default
@@ -106,7 +110,8 @@ const callApi = async (path, method, body) => {
 const setupBefore = await callApi('/api/auto-approve/setup', 'GET')
 assert.equal(setupBefore.status, 200, 'setup endpoint registered')
 assert.equal(setupBefore.json.configured, false, 'preset initially absent')
-assert.equal(setupBefore.json.patchPath, join(testProfileDir, 'cordis.patch.yml'), 'setup targets DSH_PROFILE_DIR')
+assert.equal(setupBefore.json.patchPath, join(testProfileDir, 'cordis.patch.yml'), 'setup targets the profile from argv')
+assert.equal(setupBefore.json.profile, 'desktop', 'setup reports the detected profile')
 const setupPost = await callApi('/api/auto-approve/setup', 'POST')
 assert.equal(setupPost.status, 200, 'setup POST works')
 assert.equal(setupPost.json.status, 'added-preset', 'setup inserts preset')
