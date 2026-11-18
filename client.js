@@ -19,11 +19,27 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
     const React = require('react')
 
-    // UI locale: follow the browser language; Chinese remains the default.
-    const UI_EN = (function () {
+    // UI language: Chinese by default. The user can choose auto / Chinese / English
+    // in settings; the choice is stored locally and applied after a page refresh.
+    const LANGUAGE_KEY = 'ag-ui-language'
+    function readLanguagePref() {
+      try {
+        const v = localStorage.getItem(LANGUAGE_KEY)
+        if (v === 'auto' || v === 'zh' || v === 'en') return v
+      } catch (e) { /* ignore */ }
+      return 'zh'
+    }
+    function isEnglish() {
+      const pref = readLanguagePref()
+      if (pref === 'en') return true
+      if (pref === 'zh') return false
       try { return /^en\b/i.test((typeof navigator !== 'undefined' && navigator.language) || '') } catch (e) { return false }
-    })()
-    function T(zh, en) { return UI_EN ? (en || zh) : zh }
+    }
+    function T(zh, en) { return isEnglish() ? (en || zh) : zh }
+    function applyLanguagePref(value) {
+      try { localStorage.setItem(LANGUAGE_KEY, value) } catch (e) { /* ignore */ }
+      try { window.location.reload() } catch (e) { /* ignore */ }
+    }
 
     const CSS = `
 .ag-notice{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance) - var(--dsh-composer-side-clearance) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset));max-width:calc(var(--dsh-composer-card-max-width) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset));margin:0 auto;flex:none}
@@ -346,29 +362,33 @@ window.__ModuleLoader__.load({
 .ag-set-item-del{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1)}
 `
 
-    const VERDICT_LABELS = {
-      rule: '白名单规则',
-      'flash-safe': 'Flash 判定安全',
-      learned: '沉淀规则',
-      fpHit: '已确认操作',
-      'flash-same': 'Flash 同类验证',
-      readonly: T('只读命令','Read-only command'),
-      'project-trust': T('项目信任','Project trust'),
-      'shadow-candidate': T('Shadow 候选','Shadow candidates'),
-      'guard-candidate': T('止损观察','Stop-loss observation')
+    function verdictLabels() {
+      return {
+        rule: '白名单规则',
+        'flash-safe': 'Flash 判定安全',
+        learned: '沉淀规则',
+        fpHit: '已确认操作',
+        'flash-same': 'Flash 同类验证',
+        readonly: T('只读命令', 'Read-only command'),
+        'project-trust': T('项目信任', 'Project trust'),
+        'shadow-candidate': T('Shadow 候选', 'Shadow candidates'),
+        'guard-candidate': T('止损观察', 'Stop-loss observation'),
+      }
     }
     const VERDICT_NEUTRAL = new Set(['rule', 'learned', 'fpHit', 'flash-same', 'readonly', 'project-trust'])
-    const SHADOW_PATH_LABELS = {
-      trust: '信任目录',
-      'session-memory': '会话记忆',
-      rule: '白名单规则',
-      'flash-safe': 'Flash SAFE',
-      learned: '沉淀规则',
-      fpHit: '已确认操作',
-      'flash-same': '同类验证',
-      semantic: '语义复用',
-      'project-trust': T('项目信任','Project trust'),
-      readonly: T('只读命令','Read-only command')
+    function shadowPathLabels() {
+      return {
+        trust: '信任目录',
+        'session-memory': '会话记忆',
+        rule: '白名单规则',
+        'flash-safe': 'Flash SAFE',
+        learned: '沉淀规则',
+        fpHit: '已确认操作',
+        'flash-same': '同类验证',
+        semantic: '语义复用',
+        'project-trust': T('项目信任', 'Project trust'),
+        readonly: T('只读命令', 'Read-only command'),
+      }
     }
     const HARD_CATEGORIES = new Set(['deletion', 'credential', 'remote', 'system', 'bulk'])
 
@@ -510,7 +530,7 @@ window.__ModuleLoader__.load({
         glyph = React.createElement('span', { className: 'ag-notice-glyph-err' }, '⚠')
       } else {
         title = (notice.justification || notice.reason || '')
-        const label = VERDICT_LABELS[notice.verdict] || notice.verdict || T('自动放行','Auto-approved')
+        const label = verdictLabels()[notice.verdict] || notice.verdict || T('自动放行','Auto-approved')
         tagText = T('自动放行 · ','Auto-approved · ') + label
         glyph = React.createElement(GlyphCheck, null)
       }
@@ -1070,7 +1090,7 @@ window.__ModuleLoader__.load({
           glyph = React.createElement('span', null, '⚠')
         } else if (kind === 'shadow-candidate') {
           const wp = ev.wouldPath || ev.path || ''
-          tagText = 'Shadow 候选 · 本可自动放行' + (SHADOW_PATH_LABELS[wp] ? ' · ' + SHADOW_PATH_LABELS[wp] : '')
+          tagText = 'Shadow 候选 · 本可自动放行' + (shadowPathLabels()[wp] ? ' · ' + shadowPathLabels()[wp] : '')
           tagCls = 'ag-tag-neutral'
           glyph = React.createElement('span', null, '◌')
         } else if (kind === 'guard-candidate') {
@@ -1079,7 +1099,7 @@ window.__ModuleLoader__.load({
           tagCls = 'ag-tag-neutral'
           glyph = React.createElement('span', null, '◎')
         } else {
-          tagText = T('自动放行 · ','Auto-approved · ') + (VERDICT_LABELS[ev.verdict] || ev.verdict || 'auto')
+          tagText = T('自动放行 · ','Auto-approved · ') + (verdictLabels()[ev.verdict] || ev.verdict || 'auto')
           tagCls = 'ag-tag' + (VERDICT_NEUTRAL.has(ev.verdict) ? ' ag-tag-neutral' : '')
         }
         const ov = remembered[ev.id]
@@ -1401,7 +1421,7 @@ window.__ModuleLoader__.load({
               React.createElement('div', { className: 'ag-settings-nav' },
                 React.createElement('div', { className: 'ag-settings-title' }, T('自动审批设置','Auto-approval settings')),
                 React.createElement('div', { className: 'ag-settings-chips' },
-                  [['setup', '初始化'], ['pipeline', '判定管道'], ['deny', '① DENY'], ['allow', '② 白名单'], ['denyrules', '③ 永久人工'], ['flash', '④ Flash'], ['shadow', 'Shadow'], ['guard', '止损观察'], ['learning', '⑤ 学习与沉淀'], ['library', '⑥ 规则库']].map(function (item) {
+                  [['language', T('界面语言','Language')], ['setup', '初始化'], ['pipeline', '判定管道'], ['deny', '① DENY'], ['allow', '② 白名单'], ['denyrules', '③ 永久人工'], ['flash', '④ Flash'], ['shadow', 'Shadow'], ['guard', '止损观察'], ['learning', '⑤ 学习与沉淀'], ['library', '⑥ 规则库']].map(function (item) {
                     return React.createElement('button', {
                       type: 'button', key: item[0], className: 'ag-settings-chip',
                       onClick: function () { scrollToSection('ag-tabsec-' + item[0]) },
@@ -1466,8 +1486,9 @@ window.__ModuleLoader__.load({
       const [graduationThreshold, setGraduationThreshold] = React.useState('3')
       const [graduationSessions, setGraduationSessions] = React.useState('2')
       const [shadowSuggestions, setShadowSuggestions] = React.useState({ groups: [], total: 0 })
+      const [languagePref, setLanguagePref] = React.useState(readLanguagePref())
 
-      const [collapsedCards, setCollapsedCards] = React.useState({ setup: true, pipeline: true, deny: true, allow: true, denyrules: true, flash: true, shadow: true, guard: true, learning: true, library: true })
+      const [collapsedCards, setCollapsedCards] = React.useState({ language: true, setup: true, pipeline: true, deny: true, allow: true, denyrules: true, flash: true, shadow: true, guard: true, learning: true, library: true })
 
       const toggleSettingCard = function (e) {
         const target = e.target
@@ -1687,7 +1708,26 @@ window.__ModuleLoader__.load({
         React.createElement('p', { className: 'ag-set-intro' },
           '管理自动审批的放行与阻塞规则：查看当前判定管道、黑/白名单与学习进度，可自行添加规则（如把 edit 加入白名单后自动放行）或终止错误的学习。修改即时生效（热更新）。'),
 
-        // ---- 初始化卡片 ----
+        // ---- 界面语言卡片 ----
+        React.createElement('div', { className: 'ag-set-card' + (collapsedCards.language ? ' ag-set-collapsed' : ''), id: idPrefix + 'language' },
+          React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.language },
+            React.createElement('div', { className: 'ag-set-card-title' }, T('界面语言','Interface language')),
+            React.createElement('p', { className: 'ag-set-card-sub' },
+              T('默认中文；English 目前覆盖主要界面，设置页仍有中文。切换后会刷新页面。', 'Chinese is the default. English currently covers the main views; parts of Settings remain Chinese. The page reloads after switching.'))),
+          React.createElement('div', { className: 'ag-set-row' },
+            React.createElement('select', {
+              className: 'ag-set-input', style: { width: 160 }, value: languagePref,
+              'aria-label': T('界面语言','Interface language'),
+              onChange: function (e) { setLanguagePref(e.target.value); applyLanguagePref(e.target.value) },
+            },
+              React.createElement('option', { value: 'zh' }, T('中文','Chinese')),
+              React.createElement('option', { value: 'en' }, 'English'),
+              React.createElement('option', { value: 'auto' }, T('跟随系统','Follow system')),
+            ),
+          ),
+        ),
+
+        // ---- 初始化卡片 ----        // ---- 初始化卡片 ----
         React.createElement('div', { className: 'ag-set-card' + (collapsedCards.setup ? ' ag-set-collapsed' : ''), id: idPrefix + 'setup' },
           React.createElement('div', { className: 'ag-set-card-head', role: 'button', tabIndex: 0, 'aria-expanded': !collapsedCards.setup },
             React.createElement('div', { className: 'ag-set-card-title' }, '初始化权限预设'),

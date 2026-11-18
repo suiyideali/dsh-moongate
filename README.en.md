@@ -81,7 +81,7 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots; repeated candidates are grouped by command/directory with one-click rule suggestions |
 | **Stop-loss observation (P0)** | Records an operation signature, repeat count and touched-file count (scratch directories excluded) on every approval; observation only — no blocking, rules or learning writes; feeds P1 thresholds |
 | **Approval dashboard** | Stat cards, five-segment decision mix plus a separate observation count, 7-day trend, top tools, per-project aggregation, filters/search, date-grouped timeline |
-| **UI language** | Follows the browser language and switches between Chinese and English (records, settings, notice strip and main errors) |
+| **UI language** | Chinese by default; choose **Chinese / English / Follow system** in **Approval → Settings → Interface language**; the page refreshes after switching (English covers the main views first; Settings is being translated) |
 
 ## Install
 
@@ -340,7 +340,7 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 - [x] Semantic reuse (Flash verifies similar operations after one approval using real args and the same program/tool; allows only the current operation);
 - [x] Shadow mode: record "would auto-approve" candidates before enabling;
 - [x] Per-project stats (all sessions, unknown-directory fallback);
-- [x] i18n (follows the browser language; main UI in Chinese/English);
+- [x] i18n (Chinese by default; switch Chinese/English/Follow system in settings);
 - [x] Command-intent learning (safe bash commands + cwd get separate counters/rules; unrecognized commands are not learned);
 - [x] Shadow candidate grouping and rule suggestions (same command/directory candidates aggregate; create a rule manually);
 - [x] P0 stop-loss observation (signature/repeat/file-count recording, observe-only);
