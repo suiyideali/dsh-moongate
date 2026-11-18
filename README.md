@@ -110,6 +110,7 @@ DeepSeek Harness 默认会在命令和文件修改前询问你。问题是：真
    ```
 
 4. 点 **安装**；看到安装结果后点 **立即启用**，再按提示重载/刷新。
+5. 打开 **审批 → 设置 → 初始化权限预设**，点 **一键配置权限预设**，然后重启 DSH；也可以按下面的手动方式编辑 profile 的 `cordis.patch.yml`。
 
 > 对话框也接受 npm 包名、压缩包和本地绝对路径；这里用 Git 地址，所以不需要先发布 npm。Desktop 的 `desktop` profile 由应用托管，插件管理界面就是 Desktop 的正确安装入口。
 
@@ -158,7 +159,7 @@ pnpm install
 
 ### 配置权限预设（所有安装方式都需要）
 
-权限预设表在组合时冻结，必须手动加一条到 profile 的 `cordis.patch.yml`：
+权限预设表在组合时冻结。安装后可以先在 **审批 → 设置 → 初始化权限预设** 点 **一键配置权限预设**（写入当前运行的 profile，重启 DSH 后生效）；如果一键写入失败，再手动加一条到 profile 的 `cordis.patch.yml`：
 
 ```yaml
 - id: permission

@@ -43,7 +43,11 @@ const AUDIT_PATH = join(DATA_DIR, 'audit.log')
 const EVENTS_PATH = join(DATA_DIR, 'events.jsonl')
 const MEMORY_PATH = join(DATA_DIR, 'memory.json')
 const SNAPSHOTS_DIR = join(DATA_DIR, 'snapshots')
-const PROFILE_PATCH_PATH = join(DSH_HOME, 'profiles', 'web', 'cordis.patch.yml')
+// 插件运行在哪个 profile，就写到哪个 profile 的补丁层。Desktop 的 profile 是
+// `desktop`，但旧代码硬编码成 `web`，导致“一键配置权限预设”写错文件、下拉框
+// 永远看不到 auto-approve。优先使用 DSH 注入的 DSH_PROFILE_DIR，回退到 DSH_PROFILE。
+const PROFILE_DIR = process.env.DSH_PROFILE_DIR || join(DSH_HOME, 'profiles', process.env.DSH_PROFILE || 'web')
+const PROFILE_PATCH_PATH = join(PROFILE_DIR, 'cordis.patch.yml')
 
 // 快照限制：单文件 ≤256KB、每事件 ≤5 个文件
 const SNAPSHOT_MAX_BYTES = 256 * 1024
@@ -612,9 +616,9 @@ function getRulesSnapshot() {
 function getSetupState() {
   try {
     const text = readFileSync(PROFILE_PATCH_PATH, 'utf8')
-    return { configured: text.includes('auto-approve:'), patchPath: PROFILE_PATCH_PATH }
+    return { configured: text.includes('auto-approve:'), patchPath: PROFILE_PATCH_PATH, profile: process.env.DSH_PROFILE || null }
   } catch (e) {
-    return { configured: false, patchPath: PROFILE_PATCH_PATH, error: String((e && e.message) || e) }
+    return { configured: false, patchPath: PROFILE_PATCH_PATH, profile: process.env.DSH_PROFILE || null, error: String((e && e.message) || e) }
   }
 }
 
