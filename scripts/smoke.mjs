@@ -842,6 +842,25 @@ const sensitiveLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.
 assert.ok(!sensitiveLearned, 'sensitive-prefix signature is never self-learned')
 assert.ok(/SELFLEARN-SKIP .*sensitive/.test(readFileSync(join(dataDir, 'audit.log'), 'utf8')), 'sensitive veto is audited with reason')
 
+// 隐藏目录的子目录同样不学习：~/.docker/keys/token.json（3 次 SAFE 也不得沉淀规则）
+const slDotPath = '~/.docker/keys/selflearn-' + Date.now() + '.json'
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-dot-' + i
+  feedToolCallTool('selflearn-dot', callId, 'write', { path: slDotPath, content: '{}' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'selflearn-dot', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slDotPath,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once', 'dot-dir signature still auto-allows via Flash SAFE')
+  assert.equal(nextCalls, 0)
+}
+const dotLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(!dotLearned, 'dot-dir subdirectory is never self-learned')
+assert.ok(/SELFLEARN-SKIP .*hidden-dir/.test(readFileSync(join(dataDir, 'audit.log'), 'utf8')), 'dot-dir veto is audited')
+
 // 深度 2 的家目录项目目录仍可学（~ 口径与文档一致：只挡 ~/* 与 /*）
 const slProjectPath = '~/selflearn-project-' + Date.now() + '/file.txt'
 for (let i = 0; i < 3; i++) {

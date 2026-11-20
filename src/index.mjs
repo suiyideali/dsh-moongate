@@ -1207,9 +1207,10 @@ export function signatureTooBroad(patterns) {
       const segs = rel.split('/').filter(Boolean)
       // 深度以「~ 或 / 为根」计算：不足两层（~/*、/*、/tmp/*）没有区分度
       if (segs.length < 2) tooBroad = true
-      // 家目录第一层的隐藏目录（~/.docker、~/.cargo、~/.gem、~/.android、~/.terraform.d 等）多半存凭据，
-      // 靠这条兜底，不必逐个列进清单；更深的隐藏段（如 ~/proj/.cache/...）不拦，避免误杀工作区路径
-      if (segs.length === 2 && segs[0] === '~' && segs[1].startsWith('.')) return `hidden-dir ${pattern}`
+      // 家目录下第一段是隐藏目录（~/.docker、~/.m2、~/.cargo、~/.gem、~/.android、~/.terraform.d 等，
+      // 含其子目录如 ~/.docker/keys、~/.m2/repository）一律不可学：这类目录存凭据或可注入构建的缓存，
+      // 清单式兜底穷举不完；更深的隐藏段（~/proj/.cache/...、~/claude_sandbox/.../.tmp）不拦，避免误杀工作区
+      if (segs.length >= 2 && segs[0] === '~' && segs[1].startsWith('.')) return `hidden-dir ${pattern}`
     }
     if (otherHome) return `other-home ${pattern}`
     if (tooBroad) return `too-broad ${pattern}`
