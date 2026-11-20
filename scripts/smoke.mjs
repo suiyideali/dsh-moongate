@@ -798,4 +798,138 @@ const noSelfLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.con
   .find((r) => r && r.source === 'self-learned')
 assert.ok(!noSelfLearned, 'explicit selfLearn=false creates no self-learned rule')
 
+// 过宽签名不学习：家目录第一层（~/xxx.txt）连 3 次 SAFE 也不得沉淀规则（否则等于放行整个 ~）
+const slBroadPath = '~/selflearn-broad-' + Date.now() + '.txt'
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3, riskyThreshold: 1, semanticReuse: false, shadow: false,
+  sessionMemory: false, selfLearn: true, selfLearnThreshold: 3, selfLearnSessions: 1,
+  allowRules: []
+}), 'utf8')
+await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'selfLearn', value: true })
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-broad-' + i
+  feedToolCallTool('selflearn-broad', callId, 'write', { path: slBroadPath, content: 'x' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'selflearn-broad', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slBroadPath,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once', 'broad signature still auto-allows via Flash SAFE')
+  assert.equal(nextCalls, 0)
+}
+const broadLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(!broadLearned, 'broad ~/* signature is never self-learned')
+assert.ok(readFileSync(join(dataDir, 'audit.log'), 'utf8').includes('SELFLEARN-SKIP'), 'broad signature veto is audited')
+
+// 敏感目录不学习：深度够（~/.dsh/profiles/x.txt）但命中敏感清单，同样 3 次 SAFE 也不得沉淀规则
+const slSensitivePath = '~/.dsh/profiles/selflearn-' + Date.now() + '.txt'
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-sensitive-' + i
+  feedToolCallTool('selflearn-sensitive', callId, 'write', { path: slSensitivePath, content: 'x' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'selflearn-sensitive', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slSensitivePath,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once', 'sensitive-path signature still auto-allows via Flash SAFE')
+  assert.equal(nextCalls, 0)
+}
+const sensitiveLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(!sensitiveLearned, 'sensitive-prefix signature is never self-learned')
+assert.ok(/SELFLEARN-SKIP .*sensitive/.test(readFileSync(join(dataDir, 'audit.log'), 'utf8')), 'sensitive veto is audited with reason')
+
+// 隐藏目录的子目录同样不学习：~/.docker/keys/token.json（3 次 SAFE 也不得沉淀规则）
+const slDotPath = '~/.docker/keys/selflearn-' + Date.now() + '.json'
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-dot-' + i
+  feedToolCallTool('selflearn-dot', callId, 'write', { path: slDotPath, content: '{}' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'selflearn-dot', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slDotPath,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once', 'dot-dir signature still auto-allows via Flash SAFE')
+  assert.equal(nextCalls, 0)
+}
+const dotLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(!dotLearned, 'dot-dir subdirectory is never self-learned')
+assert.ok(/SELFLEARN-SKIP .*hidden-dir/.test(readFileSync(join(dataDir, 'audit.log'), 'utf8')), 'dot-dir veto is audited')
+
+// 深度 2 的家目录项目目录仍可学（~ 口径与文档一致：只挡 ~/* 与 /*）
+const slProjectPath = '~/selflearn-project-' + Date.now() + '/file.txt'
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-project-' + i
+  feedToolCallTool('selflearn-project', callId, 'write', { path: slProjectPath, content: 'x' })
+  nextCalls = 0
+  await approval({
+    agent: { session: { id: 'selflearn-project', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slProjectPath,
+  }, nextAllowed)
+}
+const projectRule = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(projectRule, 'home project directory (depth 2) is still learnable')
+assert.ok(projectRule.signature.includes('~/selflearn-project-') || /\*\/file\.txt$/.test(projectRule.signature), 'learned signature keeps directory scoping: ' + projectRule.signature)
+
+// 闸门单元用例：归一化（..、//、大小写、符号链接）与清单覆盖
+const tooBroad = mod.signatureTooBroad
+assert.equal(tooBroad(['~/*']), 'too-broad ~/*')
+assert.equal(tooBroad(['/*']), 'too-broad /*')
+assert.equal(tooBroad(['/tmp/*']), 'too-broad /tmp/*')
+const probeRoot = join(process.env.DSH_HOME, 'gate-probe-' + Date.now())
+assert.equal(tooBroad([probeRoot + '/*.txt']), '', 'depth-2 directory under tmp home stays learnable')
+assert.equal(tooBroad(['~/gate-probe-' + Date.now() + '/*.txt']), '', 'depth-2 directory under home stays learnable')
+assert.ok(tooBroad(['/tmp/../etc/review-*.txt']).startsWith('sensitive'), '.. is collapsed before the sensitive check')
+assert.ok(tooBroad(['//etc/ssh/review-*.txt']).startsWith('sensitive'), 'double slash is collapsed')
+assert.ok(tooBroad(['~/.SSH/keys/review-*.txt']).startsWith('sensitive'), 'case-insensitive sensitive match')
+assert.ok(tooBroad(['~/Library/Messages/x/*.txt']).startsWith('sensitive'), '~/Library covered')
+assert.ok(tooBroad(['/opt/homebrew/x/*.txt']).startsWith('sensitive'), '/opt covered')
+assert.ok(tooBroad(['/var/db/x/*.txt']).startsWith('sensitive'), '/var/db covered')
+assert.equal(tooBroad(['/private/var/folders/ab/cd/*.txt']), '', 'macOS temp under /var/folders stays learnable')
+assert.ok(tooBroad(['/Users/otheruser/proj/*.txt']).startsWith('other-home'), 'other users home is rejected')
+
+// 毕业闸门（recordSignatureApproval）走同一判定：家目录点目录不可毕业。
+// 最小路径：graduationThreshold=1、graduationSessions=1，两次不同指纹的人工批准即达毕业条件。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3, riskyThreshold: 1, semanticReuse: false, shadow: false,
+  sessionMemory: false, selfLearn: false, graduationThreshold: 1, graduationSessions: 1,
+  allowRules: [], denyRules: []
+}), 'utf8')
+await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'graduationThreshold', value: 1 })
+assert.equal((await callApi('/api/auto-approve/rules', 'GET')).json.config.graduationThreshold, 1, 'graduation threshold reloaded')
+const gradA = '~/.dsh/profiles/grada-' + Date.now() + '.txt'
+const gradB = '~/.dsh/profiles/gradb-' + Date.now() + '.txt'
+flashQueue.push('RISKY:neutral', 'DIFFERENT:neutral', 'RISKY:neutral', 'DIFFERENT:neutral')
+for (const [i, target] of [gradA, gradB].entries()) {
+  const callId = 'call-graduate-' + i
+  feedToolCallTool('graduate-test', callId, 'write', { path: target, content: 'x' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'graduate-test', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + target,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once', 'neutral write falls back to the human and is approved')
+  assert.equal(nextCalls, 1, 'neutral write asked the human')
+}
+const gradRules = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+assert.ok(!gradRules.some((r) => r && r.graduation), 'no graduation rule for a sensitive home dot-dir')
+assert.ok(/GRADUATE-SKIP .*签名不可学习：(sensitive|hidden-dir)/.test(readFileSync(join(dataDir, 'audit.log'), 'utf8')), 'graduation veto is audited')
+
+// 家目录第一层点目录（凭据常见位置）兜底 + 符号链接归一化
+assert.ok(tooBroad(['~/.docker/*.json']).startsWith('hidden-dir'), '~/.docker is not learnable')
+assert.ok(tooBroad(['~/.cargo/*.toml']).startsWith('hidden-dir'), '~/.cargo is not learnable')
+assert.ok(tooBroad(['~/.terraform.d/*.json']).startsWith('hidden-dir'), '~/.terraform.d is not learnable')
+assert.equal(tooBroad(['~/proj/.cache/*.txt']), '', 'deeper hidden segments stay learnable')
+const etcLink = join(process.env.DSH_HOME, 'etc-link')
+symlinkSync('/etc', etcLink)
+assert.ok(tooBroad([etcLink + '/*.conf']).startsWith('sensitive'), 'symlinked sensitive dir is resolved before the check')
+
 console.log('smoke: ok')

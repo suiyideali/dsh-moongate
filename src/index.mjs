@@ -32,7 +32,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, readdirSync, statSync, rmSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, basename, dirname, isAbsolute, sep } from 'node:path'
+import { join, basename, dirname, isAbsolute, sep, resolve as resolvePath } from 'node:path'
 
 const NAME = 'dsh-moongate'  // 包/仓库更名；数据目录仍为 auto-approve 以兼容上游
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
@@ -1150,11 +1150,90 @@ function rememberApproved(sessionId, tool, mode, fp, category, justification, cm
   }
   return { promoted: false, sessions }
 }
+// 签名宽窄闸门：自学习/自动毕业都不许把「过宽目录类」变成免确认通道。
+// 规则级白名单在硬风险类目（凭据/删除/系统）之前生效，所以 ~/*、/* 这类签名一旦毕业，
+// 就等于绕开人工闸门放行整个目录；敏感目录（凭据、插件代码、系统目录、他人主目录）连 3 次 SAFE 也不学。
+// 判定前先归一化目录：展开 ~ → 消解 .. 与 // → 目录存在时再 realpath（解决大小写与符号链接，
+// 例如 /etc → /private/etc），否则 `/tmp/../etc/*`、`//etc/*`、`~/.SSH/*` 都能绕过敏感清单。
+const SELFLEARN_DENY_DIRS = [
+  '~/.ssh', '~/.aws', '~/.gnupg', '~/.kube', '~/.config', '~/.dsh',
+  '~/.password-store', '~/.local/share/keyrings', '~/Library',
+  '/etc', '/private/etc', '/usr', '/bin', '/sbin', '/Library', '/System',
+  '/Applications', '/opt', '/var/db', '/var/log', '/private/var/db', '/private/var/log',
+  '/boot', '/proc', '/sys', '/var/root',
+]
+function patternDir(pattern) {
+  const s = String(pattern || '')
+  const cut = s.lastIndexOf('/*')
+  return cut < 0 ? s : s.slice(0, cut)
+}
+function canonicalVariants(p) {
+  const variants = new Set([resolvePath(p)])
+  try { variants.add(realpathSync(resolvePath(p))) } catch { /* 目录尚不存在时保留字面路径 */ }
+  return Array.from(variants)
+}
+let denyVariantsCache = null
+function denyDirVariants() {
+  if (!denyVariantsCache) {
+    denyVariantsCache = SELFLEARN_DENY_DIRS.map((entry) => canonicalVariants(resolveAbsPath(entry, '')).map((p) => p.toLowerCase()))
+  }
+  return denyVariantsCache
+}
+function relToHome(p, home) {
+  if (p === home) return '~'
+  return p.startsWith(home + sep) ? '~' + p.slice(home.length) : p
+}
+// 返回空串表示可学习；否则返回不可学习的原因（用于审计）
+export function signatureTooBroad(patterns) {
+  const list = Array.isArray(patterns) ? patterns : []
+  if (list.length === 0) return 'no-pattern'
+  const home = homedir()
+  let homeReal = home
+  try { homeReal = realpathSync(home) } catch { /* 家目录不可解析时按字面值比较 */ }
+  for (const pattern of list) {
+    const dir = patternDir(pattern)
+    if (!dir || dir === '/') return `too-broad ${pattern}`
+    let tooBroad = false
+    let otherHome = false
+    for (const variant of canonicalVariants(resolveAbsPath(dir, ''))) {
+      // home 本身可能是符号链接（如 /home → /var/home），字面与 realpath 两种写法都要能映射回 ~
+      const rel = (variant.startsWith(home) || variant.startsWith(homeReal) ? relToHome(variant, variant.startsWith(homeReal) && !variant.startsWith(home + sep) ? homeReal : home) : variant).toLowerCase()
+      if (!rel.startsWith('~')) {
+        if (/^\/(users|home)(\/|$)/.test(rel) || /^\/root(\/|$)/.test(rel)) otherHome = true
+      }
+      const low = variant.toLowerCase()
+      const sensitive = denyDirVariants().some((dirs) => dirs.some((d) => low === d || low.startsWith(d + '/')))
+      if (sensitive) return `sensitive ${pattern}`
+      const segs = rel.split('/').filter(Boolean)
+      // 深度以「~ 或 / 为根」计算：不足两层（~/*、/*、/tmp/*）没有区分度
+      if (segs.length < 2) tooBroad = true
+      // 家目录下第一段是隐藏目录（~/.docker、~/.m2、~/.cargo、~/.gem、~/.android、~/.terraform.d 等，
+      // 含其子目录如 ~/.docker/keys、~/.m2/repository）一律不可学：这类目录存凭据或可注入构建的缓存，
+      // 清单式兜底穷举不完；更深的隐藏段（~/proj/.cache/...、~/claude_sandbox/.../.tmp）不拦，避免误杀工作区
+      if (segs.length >= 2 && segs[0] === '~' && segs[1].startsWith('.')) return `hidden-dir ${pattern}`
+    }
+    if (otherHome) return `other-home ${pattern}`
+    if (tooBroad) return `too-broad ${pattern}`
+  }
+  return ''
+}
+const selfLearnSkipAudited = new Set()
+function auditSkipOnce(tag, sig, reason) {
+  const key = `${tag}|${sig}|${reason}`
+  if (selfLearnSkipAudited.has(key) || selfLearnSkipAudited.size >= 500) return
+  selfLearnSkipAudited.add(key)
+  audit(`${tag} ${sig} 签名不可学习：${reason}`)
+}
 // 自学习：从 Flash 的 SAFE 判定中学习（不需要人工确认）；有路径签名、无拒绝历史、跨会话才毕业
 function recordSelfObservation(sessionId, toolName, mode, justification, eventId) {
   if (config.selfLearn !== true) return null
   const sig = opSignature(toolName, mode, justification)
   if (!sig) return null
+  const tooBroad = signatureTooBroad(signaturePaths(justification))
+  if (tooBroad) {
+    auditSkipOnce('SELFLEARN-SKIP', sig, tooBroad)
+    return { graduated: false, skipped: tooBroad }
+  }
   const denyHit = (config.denyRules || []).some((r) => matchRule([r], toolName, mode, 'neutral', justification))
   if (denyHit) return null
   const prev = memoryStore.selfLearn[sig] || {
@@ -1215,6 +1294,11 @@ function recordSignatureApproval(sessionId, toolName, mode, justification) {
   const intentOk = explicitIntent(justification)
   const needCount = intentOk ? threshold : threshold + 1
   if (prev.count >= needCount && sessions >= (config.graduationSessions || 2) && distinctFps >= 2 && !denyHit) {
+    const tooBroad = signatureTooBroad(prev.patterns || signaturePaths(justification))
+    if (tooBroad) {
+      auditSkipOnce('GRADUATE-SKIP', sig, tooBroad)
+      return { graduated: false, count: prev.count, sessions, skipped: tooBroad }
+    }
     const exists = (config.allowRules || []).some((r) => r && r.graduation && r.signature === sig)
     if (!exists) {
       const rule = {

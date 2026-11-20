@@ -34,6 +34,7 @@
 | 拒绝计数升级（D） | 连续 3 / 累计 20 次拒绝 → `escalate` 事件 + 审计 `ESCALATE` + 审批视图红色「需人工介入」；批准后连续计数清零；批量计数可通过 API 查看/重置 | `/api/auto-approve/counters`、`counters-reset` 已验证 |
 | 两段式判定（B） | 快筛 `ALLOW/REVIEW` + 复评；`twoStage`、`stage1Provider/stage1Model` 可配；默认关闭 | 默认 Flash 快筛对 danger-full-access 一律 REVIEW（无收益）；pro/gpt 覆盖调用失败（模型路由），保持关闭 |
 | 自学习（默认开） | 从 Flash 累计 SAFE 判定毕业签名（`selfLearn`、阈值/会话/规则上限可配），无需人工确认；无拒绝历史才毕业，负反馈会删除 | 阈值 3/会话 1 下实测：3 次 SAFE 后生成规则，第 4 次命中规则跳过 Flash |
+| 签名宽窄闸门 | `signatureTooBroad()`：目录部分先归一化（展开 `~`、消解 `..` 与 `//`、存在时 `realpath` 解决大小写与符号链接），再按「`~` 或 `/` 为根」的深度（不足 2 层：`~/*`、`/*`、`/tmp/*`）、家目录第一层隐藏目录（`~/.docker`、`~/.cargo`、`~/.gem`、`~/.android`、`~/.terraform.d` 等）与敏感清单（`~/.ssh`、`~/.dsh`、`~/.aws`、`~/Library`、`/etc`、`/private/etc`、`/usr`、`/opt`、`/Applications`、`/var/db`、`/var/log`、他人主目录等）拦截；自学习与自动毕业两条路径都拦，避免一条规则放行整个目录并绕过硬风险类目的人工闸门 | 审计 `SELFLEARN-SKIP` / `GRADUATE-SKIP ... 签名不可学习`（按签名+原因去重）；smoke 用例：`~/xxx.txt`（深度）与 `~/.dsh/profiles/x.txt`（敏感）各 3 次 SAFE 不毕业，`~/<project>/file.txt` 仍毕业，另有 `..`/`//`/大小写/符号链接/点目录的直接单测，并驱动 `recordSignatureApproval()` 断言 `GRADUATE-SKIP` 且不生成毕业规则 |
 | 测试与 CI | `npm test`（node --check + smoke）；GitHub Actions 校验补丁可应用到上游 0.5.0；新增英文 README | smoke 可本地运行；CI 需 push 后验证 |
 | 设置页 UI 排序 | 卡片顺序 ①→⑥；② 去掉重复筛选；⑤ 合并学习与自动学习；⑥ 行支持换行 | 客户端刷新后生效 |
 
