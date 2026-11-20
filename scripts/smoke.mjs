@@ -875,4 +875,41 @@ assert.ok(tooBroad(['/var/db/x/*.txt']).startsWith('sensitive'), '/var/db covere
 assert.equal(tooBroad(['/private/var/folders/ab/cd/*.txt']), '', 'macOS temp under /var/folders stays learnable')
 assert.ok(tooBroad(['/Users/otheruser/proj/*.txt']).startsWith('other-home'), 'other users home is rejected')
 
+// 毕业闸门（recordSignatureApproval）走同一判定：家目录点目录不可毕业。
+// 最小路径：graduationThreshold=1、graduationSessions=1，两次不同指纹的人工批准即达毕业条件。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3, riskyThreshold: 1, semanticReuse: false, shadow: false,
+  sessionMemory: false, selfLearn: false, graduationThreshold: 1, graduationSessions: 1,
+  allowRules: [], denyRules: []
+}), 'utf8')
+await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'graduationThreshold', value: 1 })
+assert.equal((await callApi('/api/auto-approve/rules', 'GET')).json.config.graduationThreshold, 1, 'graduation threshold reloaded')
+const gradA = '~/.dsh/profiles/grada-' + Date.now() + '.txt'
+const gradB = '~/.dsh/profiles/gradb-' + Date.now() + '.txt'
+flashQueue.push('RISKY:neutral', 'DIFFERENT:neutral', 'RISKY:neutral', 'DIFFERENT:neutral')
+for (const [i, target] of [gradA, gradB].entries()) {
+  const callId = 'call-graduate-' + i
+  feedToolCallTool('graduate-test', callId, 'write', { path: target, content: 'x' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'graduate-test', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + target,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once', 'neutral write falls back to the human and is approved')
+  assert.equal(nextCalls, 1, 'neutral write asked the human')
+}
+const gradRules = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+assert.ok(!gradRules.some((r) => r && r.graduation), 'no graduation rule for a sensitive home dot-dir')
+assert.ok(/GRADUATE-SKIP .*签名不可学习：(sensitive|hidden-dir)/.test(readFileSync(join(dataDir, 'audit.log'), 'utf8')), 'graduation veto is audited')
+
+// 家目录第一层点目录（凭据常见位置）兜底 + 符号链接归一化
+assert.ok(tooBroad(['~/.docker/*.json']).startsWith('hidden-dir'), '~/.docker is not learnable')
+assert.ok(tooBroad(['~/.cargo/*.toml']).startsWith('hidden-dir'), '~/.cargo is not learnable')
+assert.ok(tooBroad(['~/.terraform.d/*.json']).startsWith('hidden-dir'), '~/.terraform.d is not learnable')
+assert.equal(tooBroad(['~/proj/.cache/*.txt']), '', 'deeper hidden segments stay learnable')
+const etcLink = join(process.env.DSH_HOME, 'etc-link')
+symlinkSync('/etc', etcLink)
+assert.ok(tooBroad([etcLink + '/*.conf']).startsWith('sensitive'), 'symlinked sensitive dir is resolved before the check')
+
 console.log('smoke: ok')

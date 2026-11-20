@@ -1193,17 +1193,24 @@ export function signatureTooBroad(patterns) {
     const dir = patternDir(pattern)
     if (!dir || dir === '/') return `too-broad ${pattern}`
     let tooBroad = false
+    let otherHome = false
     for (const variant of canonicalVariants(resolveAbsPath(dir, ''))) {
-      const rel = relToHome(variant, homeReal).toLowerCase()
-      const otherUserHome = /^\/(users|home)(\/|$)/.test(rel)
-      const rootHome = /^\/root(\/|$)/.test(rel)
-      if (otherUserHome || rootHome) return `other-home ${pattern}`
+      // home 本身可能是符号链接（如 /home → /var/home），字面与 realpath 两种写法都要能映射回 ~
+      const rel = (variant.startsWith(home) || variant.startsWith(homeReal) ? relToHome(variant, variant.startsWith(homeReal) && !variant.startsWith(home + sep) ? homeReal : home) : variant).toLowerCase()
+      if (!rel.startsWith('~')) {
+        if (/^\/(users|home)(\/|$)/.test(rel) || /^\/root(\/|$)/.test(rel)) otherHome = true
+      }
       const low = variant.toLowerCase()
       const sensitive = denyDirVariants().some((dirs) => dirs.some((d) => low === d || low.startsWith(d + '/')))
       if (sensitive) return `sensitive ${pattern}`
-      // 深度以「~ 或 / 为根」计算：不足两层（~/*、~/.ssh、/tmp/*）没有区分度
-      if (rel.split('/').filter(Boolean).length < 2) tooBroad = true
+      const segs = rel.split('/').filter(Boolean)
+      // 深度以「~ 或 / 为根」计算：不足两层（~/*、/*、/tmp/*）没有区分度
+      if (segs.length < 2) tooBroad = true
+      // 家目录第一层的隐藏目录（~/.docker、~/.cargo、~/.gem、~/.android、~/.terraform.d 等）多半存凭据，
+      // 靠这条兜底，不必逐个列进清单；更深的隐藏段（如 ~/proj/.cache/...）不拦，避免误杀工作区路径
+      if (segs.length === 2 && segs[0] === '~' && segs[1].startsWith('.')) return `hidden-dir ${pattern}`
     }
+    if (otherHome) return `other-home ${pattern}`
     if (tooBroad) return `too-broad ${pattern}`
   }
   return ''
