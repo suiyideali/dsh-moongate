@@ -748,14 +748,14 @@ assert.equal(readAudit().slice(guardOffBefore.length).split('\n').filter((line) 
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,
   allowRules: [
-    { tool: 'bash', mode: 'danger-full-access', contains: 'echo legacy-suggestion', source: 'shadow-suggestion', hitCount: 0, description: '来自已移除的 Shadow 建议' },
+    { tool: 'bash', mode: 'danger-full-access', contains: 'echo legacy-suggestion', source: 'shadow-suggestion', hitCount: 0, disabled: true, description: '来自已移除的 Shadow 建议' },
   ],
 }), 'utf8')
 const legacyCfg = await callApi('/api/auto-approve/rules', 'GET')
 const legacyRule = (legacyCfg.json.config.allowRules || []).find((r) => r.source === 'shadow-suggestion')
 assert.ok(legacyRule, 'legacy shadow-suggestion rule is still readable')
 assert.equal(legacyRule.contains, 'echo legacy-suggestion', 'legacy rule fields survive loading')
-assert.equal(legacyRule.disabled, false, 'legacy rule is not disabled by loading')
+assert.equal(legacyRule.disabled, true, 'a disabled legacy rule stays disabled and is still readable')
 
 const patchPath = new URL('../patches/dsh-approval-gate@0.5.0.patch', import.meta.url)
 assert.ok(existsSync(patchPath), 'fork patch present')

@@ -415,7 +415,11 @@ function describeGuardSignature(toolName, mode, signature) {
   let s = String(signature || '')
   if (s.startsWith(head + '|')) s = s.slice(head.length + 1)
   const home = homedir()
-  if (home) s = s.split(home).join('~')
+  if (home) {
+    // 只在路径边界折叠：/Users/me-other 不能被折成 ~-other。
+    s = s.split(home + sep).join('~' + sep)
+    s = s.replace(new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w.-])', 'g'), '~')
+  }
   return s.length > 120 ? s.slice(0, 119) + '…' : s
 }
 

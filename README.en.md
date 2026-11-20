@@ -226,7 +226,7 @@ Eight configuration cards:
 
 > **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
 
-> **Stop-loss debug log**: `guard` only writes to the audit log. When enabled, every approval appends a `GUARD` line to `audit.log` with `sig=` (tool, mode and the operation signature: normalized paths for file operations, masked command text for command operations, home folded to `~`), `repeat`, `total` and the touched-file count (`/tmp`, `/private/var/folders` and similar scratch dirs excluded). It writes no `events.jsonl` record, no rule, no learning counter and no snapshot, and never changes the outcome. The Records “Stop-loss observation” filter only shows historical v0.7.x `guard-candidate` events.
+> **Stop-loss debug log**: `guard` only writes to the audit log. When enabled, every approval appends a `GUARD` line to `audit.log` with `sig=` (the operation signature only — tool/mode stay at the start of the line: normalized paths for file operations, masked command text for command operations, home folded to `~`), `repeat`, `total` and the touched-file count (`/tmp`, `/private/var/folders` and similar scratch dirs excluded). It writes no `events.jsonl` record, no rule, no learning counter and no snapshot, and never changes the outcome. The Records “Stop-loss observation” filter only shows historical v0.7.x `guard-candidate` events.
 
 ## How it works
 
