@@ -823,4 +823,56 @@ const broadLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.conf
 assert.ok(!broadLearned, 'broad ~/* signature is never self-learned')
 assert.ok(readFileSync(join(dataDir, 'audit.log'), 'utf8').includes('SELFLEARN-SKIP'), 'broad signature veto is audited')
 
+// 敏感目录不学习：深度够（~/.dsh/profiles/x.txt）但命中敏感清单，同样 3 次 SAFE 也不得沉淀规则
+const slSensitivePath = '~/.dsh/profiles/selflearn-' + Date.now() + '.txt'
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-sensitive-' + i
+  feedToolCallTool('selflearn-sensitive', callId, 'write', { path: slSensitivePath, content: 'x' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'selflearn-sensitive', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slSensitivePath,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once', 'sensitive-path signature still auto-allows via Flash SAFE')
+  assert.equal(nextCalls, 0)
+}
+const sensitiveLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(!sensitiveLearned, 'sensitive-prefix signature is never self-learned')
+assert.ok(/SELFLEARN-SKIP .*sensitive/.test(readFileSync(join(dataDir, 'audit.log'), 'utf8')), 'sensitive veto is audited with reason')
+
+// 深度 2 的家目录项目目录仍可学（~ 口径与文档一致：只挡 ~/* 与 /*）
+const slProjectPath = '~/selflearn-project-' + Date.now() + '/file.txt'
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-project-' + i
+  feedToolCallTool('selflearn-project', callId, 'write', { path: slProjectPath, content: 'x' })
+  nextCalls = 0
+  await approval({
+    agent: { session: { id: 'selflearn-project', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slProjectPath,
+  }, nextAllowed)
+}
+const projectRule = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(projectRule, 'home project directory (depth 2) is still learnable')
+assert.ok(projectRule.signature.includes('~/selflearn-project-') || /\*\/file\.txt$/.test(projectRule.signature), 'learned signature keeps directory scoping: ' + projectRule.signature)
+
+// 闸门单元用例：归一化（..、//、大小写、符号链接）与清单覆盖
+const tooBroad = mod.signatureTooBroad
+assert.equal(tooBroad(['~/*']), 'too-broad ~/*')
+assert.equal(tooBroad(['/*']), 'too-broad /*')
+assert.equal(tooBroad(['/tmp/*']), 'too-broad /tmp/*')
+assert.equal(tooBroad(['~/proj/*.txt']), '')
+assert.equal(tooBroad(['/tmp/proj/*.txt']), '')
+assert.ok(tooBroad(['/tmp/../etc/review-*.txt']).startsWith('sensitive'), '.. is collapsed before the sensitive check')
+assert.ok(tooBroad(['//etc/ssh/review-*.txt']).startsWith('sensitive'), 'double slash is collapsed')
+assert.ok(tooBroad(['~/.SSH/keys/review-*.txt']).startsWith('sensitive'), 'case-insensitive sensitive match')
+assert.ok(tooBroad(['~/Library/Messages/x/*.txt']).startsWith('sensitive'), '~/Library covered')
+assert.ok(tooBroad(['/opt/homebrew/x/*.txt']).startsWith('sensitive'), '/opt covered')
+assert.ok(tooBroad(['/var/db/x/*.txt']).startsWith('sensitive'), '/var/db covered')
+assert.equal(tooBroad(['/private/var/folders/ab/cd/*.txt']), '', 'macOS temp under /var/folders stays learnable')
+assert.ok(tooBroad(['/Users/otheruser/proj/*.txt']).startsWith('other-home'), 'other users home is rejected')
+
 console.log('smoke: ok')
