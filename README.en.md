@@ -78,8 +78,8 @@ Approval fatigue is real: users accept a very high share of permission prompts, 
 | **Rule health check** | Flags generic `contains`, blanket mode rules and huge trust roots, with narrowing suggestions |
 | **Reject escalation** | 3 consecutive / 20 total rejections → `escalate` event and a red "needs human" badge |
 | **Two-stage judging** | Fast `ALLOW/REVIEW` screen + deep re-check; off by default |
-| **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots; repeated candidates are grouped by command/directory with one-click rule suggestions |
-| **Stop-loss observation (P0)** | Records an operation signature, repeat count and touched-file count (scratch directories excluded) on every approval; observation only — no blocking, rules or learning writes; feeds P1 thresholds |
+| **Shadow mode** | Records “would auto-approve” candidates while still asking you; candidates write no rules, learning or snapshots, so you can observe before turning it off (v0.8.0 removed the candidate-grouping / one-click rule-suggestion API: 0 of 289 candidates ever became a rule) |
+| **Stop-loss debug log** | When enabled, every approval appends one `GUARD` line to `audit.log` (operation signature, same-signature repeat count, touched-file count with scratch dirs excluded). It writes no approval events, rules, learning or snapshots and never changes an outcome; historical v0.7.x `guard-candidate` events stay readable |
 | **Approval dashboard** | Stat cards, five-segment decision mix plus a separate observation count, 7-day trend, top tools, per-project aggregation, filters/search, date-grouped timeline |
 | **UI language** | Chinese by default; choose **Chinese / English / Follow system** in **Approval → Settings → Interface language**; the page refreshes after switching (English covers the main views first; Settings is being translated) |
 
@@ -189,7 +189,7 @@ The approval view (right of the trajectory) is a **dashboard**, not a simple lis
 | Area | What it shows | Question it answers |
 | --- | --- | --- |
 | **Needs attention** | Rejected + escalated summary (only shown when such records exist), with a "show only these" action | Is there anything I need to handle? |
-| **Overview** (expanded by default, collapsible) | Five decision cards (auto / Shadow / manual / rejected / needs-human, with percentages) plus a separate stop-loss observation count | What is the approval mix in this session? |
+| **Overview** (expanded by default, collapsible) | Five decision cards (auto / Shadow / manual / rejected / needs-human, with percentages) plus a separate stop-loss count (historical `guard-candidate` events only; v0.8.0 writes to `audit.log` instead) | What is the approval mix in this session? |
 | | Six-segment distribution bar + rule overview: total / self-learned / graduated / trust roots | How much is automated, and how much has been learned? |
 | | 7-day approval trend + top tools | When, and with which tools, do approvals happen? |
 | | Per-project/directory aggregation (all sessions): name, path, auto-rate bar, total/auto/rejected/Shadow | Which projects trigger approvals most, and how automated are they? |
@@ -220,13 +220,13 @@ Eight configuration cards:
 | ③ denyRules | Permanently manual rules |
 | ④ Flash | `judgeTimeoutMs` |
 | Shadow | Observation toggle; candidates are recorded, not auto-approved |
-| Stop-loss observation | P0 observation toggle; records signature/repeats/files without changing approval outcomes |
+| Stop-loss observation | Stop-loss debug-log toggle; only appends `GUARD` lines to `audit.log` (signature/repeats/files), no events and no effect on outcomes |
 | ⑤ Learning & sedimentation | `riskyThreshold`, manual-confirmation keys/threshold + session memory, promotion, graduation, self-learning, two-stage, semantic reuse |
 | ⑥ Rule library | Unified rule management + inline editing + health check + export |
 
 > **Shadow boundary**: during observation, rejected candidates are **not** written to `denyRules` — Shadow produces no learning side effects at all. After turning Shadow off, add a permanent-manual rule (or keep the existing deny rule) if you want an operation to remain manual.
 
-> **Stop-loss observation (P0)**: `guard` is observation-only. When enabled, every approval adds a `guard-candidate` event with an `operationSignature`, same-signature repeat count, touched-file count (`/tmp`, `/private/var/folders` and similar scratch dirs excluded) and cwd. Approval outcomes, rules, learning counters and snapshots are unchanged. Filter by “Stop-loss observation” in Records; P1 will derive soft thresholds from this data.
+> **Stop-loss debug log**: `guard` only writes to the audit log. When enabled, every approval appends a `GUARD` line to `audit.log` with `sig=` (the operation signature only — tool/mode stay at the start of the line: normalized paths for file operations, masked command text for command operations, home folded to `~`), `repeat`, `total` and the touched-file count (`/tmp`, `/private/var/folders` and similar scratch dirs excluded). It writes no `events.jsonl` record, no rule, no learning counter and no snapshot, and never changes the outcome. The Records “Stop-loss observation” filter only shows historical v0.7.x `guard-candidate` events.
 
 ## How it works
 
@@ -299,7 +299,7 @@ Everything lives in `~/.dsh/auto-approve/`; edits to `allowlist.json` are hot-re
 | `selfLearnMaxRules` | 50 | Self-learned rule cap |
 | `twoStage` | false | Two-stage judging switch |
 | `shadow` | false | Shadow observation mode; candidates are recorded but not auto-approved |
-| `guard` | false | P0 stop-loss observation; records signature/repeats/files without changing outcomes |
+| `guard` | false | Stop-loss debug log: appends `GUARD` lines to `audit.log` only (signatures/repeats/files); no events and no effect on outcomes |
 | `semanticReuse` | false | After one manual approval, semantically verify similar neutral operations with Flash; no rule sedimentation |
 | `stage1Provider` / `stage1Model` | empty | Fast-screen model |
 | `denyEscalateConsecutive` | 3 | Consecutive rejection escalation |
@@ -342,8 +342,8 @@ Local loop: host changes need a plugin reload; client changes need a page refres
 - [x] Per-project stats (all sessions, unknown-directory fallback);
 - [x] i18n (Chinese by default; switch Chinese/English/Follow system in settings);
 - [x] Command-intent learning (safe bash commands + cwd get separate counters/rules; unrecognized commands are not learned);
-- [x] Shadow candidate grouping and rule suggestions (same command/directory candidates aggregate; create a rule manually);
-- [x] P0 stop-loss observation (signature/repeat/file-count recording, observe-only);
+- [x] Shadow candidate recording (v0.8.0 removed the candidate-grouping / rule-suggestion API: 0 suggestions were adopted; candidate events still feed per-project stats);
+- [x] Stop-loss debug log (writes `audit.log` only — no events, no blocking; v0.8.0 stopped writing `guard-candidate` events);
 - [x] First-use read-only fast path (strictly read-only, inside cwd, no pipes/redirection, no setup).
 - [x] Project-level trust: allow edit/write and recognized test/build inside a project root; push/network/deletion still ask.
 - [x] Onboarding and default self-learning: a first-run note explains cross-session learning; self-learning defaults to 3 SAFE verdicts / 1 session.

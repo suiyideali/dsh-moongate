@@ -85,8 +85,9 @@ assert.equal(typeof approval, 'function', 'approval handler registered')
 
 // 调规则 API：用最小 req/res 模拟 WebServer，验证行内编辑走真实 HTTP 路径。
 const callApi = async (path, method, body) => {
-  const handler = routes.get(path)
-  assert.equal(typeof handler, 'function', 'route registered: ' + path)
+  const [routePath] = String(path).split('?')
+  const handler = routes.get(routePath)
+  assert.equal(typeof handler, 'function', 'route registered: ' + routePath)
   const req = new EventEmitter()
   req.method = method
   req.url = path
@@ -132,6 +133,7 @@ assert.equal((await callApi('/api/auto-approve/rules', 'GET')).json.config.onboa
 
 let nextCalls = 0
 const nextAllowed = async () => { nextCalls += 1; return 'allowed-once' }
+const nextRejected = async () => 'rejected'
 const expectManualBash = async (sid, callId, command, label) => {
   feedToolCall(sid, callId, command)
   nextCalls = 0
@@ -634,7 +636,8 @@ assert.match(unsafe.json.error, /danger-full-access/, 'unsafe edit explains dang
 const afterEdit = await callApi('/api/auto-approve/rules', 'GET')
 assert.equal(afterEdit.json.config.allowRules.find((rule) => rule.id === editable.id).description, 'inline edit test', 'inline edit persisted')
 
-// Shadow 候选分组：两次同命令/同目录候选应聚合，并给出命令规则建议。
+// Shadow 候选事件仍参与按项目统计；v0.8.0 移除了「候选分组 + 一键建规则」链路，
+// 历史 events.jsonl 里的 shadow-candidate 记录必须继续被 project-stats 正确统计。
 for (const id of [9001, 9002]) {
   appendFileSync(eventsPath, JSON.stringify({
     id, ts: Date.now(), sessionId: 'suggest-test', tool: 'bash', mode: 'workspace-write',
@@ -642,19 +645,7 @@ for (const id of [9001, 9002]) {
     commandPattern: 'npm test', cwd, justification: 'npm test'
   }) + '\n')
 }
-const suggestions = await callApi('/api/auto-approve/shadow-suggestions', 'GET')
-assert.equal(suggestions.status, 200, 'shadow suggestions endpoint')
-assert.ok(suggestions.json.ok, 'shadow suggestions ok')
-const group = suggestions.json.groups.find((g) => g.commandPattern === 'npm test' && g.cwd === cwd)
-assert.ok(group, 'shadow suggestions groups same command')
-assert.ok(group.count >= 2, 'shadow suggestions counts candidates')
-assert.equal(group.suggestion && group.suggestion.commandPattern, 'npm test', 'shadow suggestion is command-aware')
-assert.equal(group.suggestion && group.suggestion.cwdPrefix, cwd, 'shadow suggestion scopes cwd')
-const addSuggestion = await callApi('/api/auto-approve/rules', 'POST', { op: 'add', kind: 'allowRules', value: group.suggestion })
-assert.equal(addSuggestion.status, 200, 'shadow suggestion can be added as a rule')
-assert.ok(addSuggestion.json.ok, 'shadow suggestion rule accepted')
-const addedRule = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules.find((r) => r.commandPattern === 'npm test' && r.cwdPrefix === cwd)
-assert.ok(addedRule, 'shadow suggestion rule persists')
+assert.equal(routes.has('/api/auto-approve/shadow-suggestions'), false, 'shadow suggestion API removed in v0.8.0')
 
 // 项目统计：按 cwd 聚合；历史无 cwd 归入“未知目录”。
 appendFileSync(eventsPath, JSON.stringify({ id: 9999, ts: Date.now(), tool: 'old', mode: 'workspace-write', verdict: 'rule', kind: 'auto' }) + '\n')
@@ -668,7 +659,13 @@ assert.ok(project.shadow >= 1, 'project stats counts shadow candidates')
 const unknown = projectStats.json.projects.find((p) => !p.path)
 assert.ok(unknown && unknown.name === '未知目录', 'project stats groups missing cwd as unknown')
 
-// P0 执行止损观察：只记录签名/重复/文件数，不改变审批结果。
+// 执行止损调试日志（v0.8.0）：只写 audit.log 的 GUARD 行，不写 events.jsonl、不改变审批结果。
+const auditLogPath = join(dataDir, 'audit.log')
+const readAudit = () => { try { return readFileSync(auditLogPath, 'utf8') } catch { return '' } }
+const guardAuditBefore = readAudit()
+const guardSeg = () => readAudit().slice(guardAuditBefore.length)
+flashReply = 'RISKY:neutral'
+flashQueue = []
 writeFileSync(allowlistPath, JSON.stringify({
   version: 3,
   guard: true,
@@ -679,19 +676,18 @@ nextCalls = 0
 feedToolCall('guard-test', 'call-guard-1', 'git status')
 const guardFirst = await approval(bashRequest('guard-test', 'call-guard-1', 'git status'), nextAllowed)
 assert.equal(guardFirst, 'allowed-once')
-assert.equal(nextCalls, 0, 'guard observation does not change read-only approval')
+assert.equal(nextCalls, 0, 'guard logging does not change read-only approval')
 nextCalls = 0
 feedToolCall('guard-test', 'call-guard-2', 'git status')
 const guardSecond = await approval(bashRequest('guard-test', 'call-guard-2', 'git status'), nextAllowed)
 assert.equal(guardSecond, 'allowed-once')
-assert.equal(nextCalls, 0, 'guard observation keeps read-only behavior')
-const guardEvents = readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-test')
-assert.equal(guardEvents.length, 2, 'one guard event per approval request')
-assert.ok(guardEvents[0].guard && guardEvents[0].guard.signature.includes('git status'), 'guard event records operation signature')
-assert.equal(guardEvents[0].guard.repeat, 1, 'first guard candidate repeat is 1')
-assert.equal(guardEvents[1].guard.repeat, 2, 'second identical candidate repeat is 2')
-assert.equal(guardEvents[1].guard.files, 0, 'read-only command has no file budget')
-assert.ok(!readEvents().some((ev) => ev.kind === 'auto' && ev.guard), 'guard data is not attached to auto events')
+assert.equal(nextCalls, 0, 'guard logging keeps read-only behavior')
+const guardLines = guardSeg().split('\n').filter((line) => line.includes('GUARD   '))
+assert.equal(guardLines.length, 2, 'one GUARD audit line per approval request')
+assert.match(guardLines[0], /repeat=1 total=1 files=0/, 'first guard line records repeat/total/files')
+assert.match(guardLines[1], /repeat=2 total=2 files=0/, 'second identical candidate increments repeat')
+assert.match(guardLines[0], / sig=.+$/, 'guard line carries the operation signature so repeat is traceable')
+assert.equal(readEvents().filter((ev) => ev.kind === 'guard-candidate').length, 0, 'guard writes no events.jsonl record')
 // 文件预算：只统计项目内路径，/tmp 等临时目录不计入。
 const guardProjectCwd = join(cwd, 'guard-project')
 mkdirSync(guardProjectCwd, { recursive: true })
@@ -707,17 +703,11 @@ const guardPathOut = await approval({
 }, nextAllowed)
 assert.equal(guardPathOut, 'allowed-once')
 assert.equal(nextCalls, 1, 'guard does not change write approval')
-const guardPathEvent = readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-paths').pop()
-assert.ok(guardPathEvent, 'guard records write request')
-assert.equal(guardPathEvent.guard.files, 1, 'guard counts project file')
-assert.deepEqual(guardPathEvent.guard.paths, [join(guardProjectCwd, 'a.js')], 'guard excludes scratch paths')
+const guardWriteLines = guardSeg().split('\n').filter((line) => line.includes('GUARD   write'))
+assert.equal(guardWriteLines.length, 1, 'guard records write request in audit.log')
+assert.match(guardWriteLines[0], /mode=workspace-write repeat=1 total=1 files=1/, 'guard counts project file and excludes scratch paths')
 const snapshotsAfter = existsSync(snapshotsPath) ? readdirSync(snapshotsPath).length : 0
-assert.equal(snapshotsAfter, snapshotsBefore, 'guard event does not create snapshots')
-const statsWithGuard = await callApi('/api/auto-approve/project-stats', 'GET')
-const guardProject = statsWithGuard.json.projects.find((p) => p.path === guardProjectCwd)
-assert.ok(guardProject, 'project stats includes the guard project decision')
-assert.equal(guardProject.total, 1, 'project stats ignores the guard observation event')
-assert.equal(guardProject.auto, 0, 'guard event is not counted as auto')
+assert.equal(snapshotsAfter, snapshotsBefore, 'guard logging does not create snapshots')
 // 同一文件再次修改：签名不变，repeat 递增（文件内容变化不应拆散签名）。
 feedToolCallTool('guard-paths', 'call-guard-paths-2', 'write', { files: [join(guardProjectCwd, 'a.js')], content: 'different content' })
 nextCalls = 0
@@ -727,19 +717,45 @@ await approval({
   callId: 'call-guard-paths-2',
   reason: 'escalate sandbox to workspace-write: write project files',
 }, nextAllowed)
-const guardPathEvents = readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-paths')
-assert.equal(guardPathEvents.length, 2, 'second file request recorded')
-assert.equal(guardPathEvents[1].guard.repeat, 2, 'same file signature increments repeat')
-assert.equal(guardPathEvents[1].guard.signature, guardPathEvents[0].guard.signature, 'file content does not change signature')
+const guardWriteLines2 = guardSeg().split('\n').filter((line) => line.includes('GUARD   write'))
+assert.equal(guardWriteLines2.length, 2, 'second file request logged')
+assert.match(guardWriteLines2[1], /repeat=2 .*files=1/, 'same file signature increments repeat')
+const guardSigOf = (line) => (line.match(/ sig=(.*)$/) || [])[1]
+assert.ok(guardSigOf(guardWriteLines2[0]), 'write guard line carries a signature')
+assert.equal(guardSigOf(guardWriteLines2[0]), guardSigOf(guardWriteLines2[1]), 'same file keeps one signature across content changes')
+// 兼容性：历史 guard-candidate 事件仍被 project-stats 忽略（不改变统计口径）。
+appendFileSync(eventsPath, JSON.stringify({
+  id: 9100, ts: Date.now(), sessionId: 'guard-legacy', tool: 'write', mode: 'workspace-write',
+  kind: 'guard-candidate', path: 'guard-observe', cwd: guardProjectCwd,
+  guard: { signature: 'write|a.js', repeat: 1, sessionTotal: 1, files: 1, paths: [join(guardProjectCwd, 'a.js')] }
+}) + '\n')
+const statsWithGuard = await callApi('/api/auto-approve/project-stats', 'GET')
+const guardProject = statsWithGuard.json.projects.find((p) => p.path === guardProjectCwd)
+assert.ok(guardProject, 'project stats includes the guard project decision')
+assert.equal(guardProject.total, 2, 'project stats ignores legacy guard observation events')
 const guardCfg = await callApi('/api/auto-approve/rules', 'GET')
 assert.equal(guardCfg.json.config.guard, true, 'guard config exposed')
 const guardOff = await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'guard', value: false })
 assert.equal(guardOff.status, 200, 'guard toggle accepted')
+const guardOffBefore = readAudit()
 nextCalls = 0
 feedToolCall('guard-test-2', 'call-guard-3', 'git status')
 const guardDisabled = await approval(bashRequest('guard-test-2', 'call-guard-3', 'git status'), nextAllowed)
 assert.equal(guardDisabled, 'allowed-once')
-assert.equal(readEvents().filter((ev) => ev.kind === 'guard-candidate' && ev.sessionId === 'guard-test-2').length, 0, 'guard off produces no events')
+assert.equal(readAudit().slice(guardOffBefore.length).split('\n').filter((line) => line.includes('GUARD   ')).length, 0, 'guard off writes no GUARD line')
+
+// 向后兼容：遗留 source（如已移除的 shadow-suggestion）仍能读取，规则不被删除。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  allowRules: [
+    { tool: 'bash', mode: 'danger-full-access', contains: 'echo legacy-suggestion', source: 'shadow-suggestion', hitCount: 0, disabled: true, description: '来自已移除的 Shadow 建议' },
+  ],
+}), 'utf8')
+const legacyCfg = await callApi('/api/auto-approve/rules', 'GET')
+const legacyRule = (legacyCfg.json.config.allowRules || []).find((r) => r.source === 'shadow-suggestion')
+assert.ok(legacyRule, 'legacy shadow-suggestion rule is still readable')
+assert.equal(legacyRule.contains, 'echo legacy-suggestion', 'legacy rule fields survive loading')
+assert.equal(legacyRule.disabled, true, 'a disabled legacy rule stays disabled and is still readable')
 
 const patchPath = new URL('../patches/dsh-approval-gate@0.5.0.patch', import.meta.url)
 assert.ok(existsSync(patchPath), 'fork patch present')
@@ -931,5 +947,90 @@ assert.equal(tooBroad(['~/proj/.cache/*.txt']), '', 'deeper hidden segments stay
 const etcLink = join(process.env.DSH_HOME, 'etc-link')
 symlinkSync('/etc', etcLink)
 assert.ok(tooBroad([etcLink + '/*.conf']).startsWith('sensitive'), 'symlinked sensitive dir is resolved before the check')
+
+// ---- 回归：生产 10 周零触发但代码可达的三条路径（ESCALATE / PROMOTE / SELFLEARN-CAP）----
+// 目的：裁剪评估中确认它们“可达但零触发”，用测试锁定语义，避免以后被误删或静默失效。
+const auditPath = join(dataDir, 'audit.log')
+const readAuditLog = () => { try { return readFileSync(auditPath, 'utf8') } catch { return '' } }
+
+// 1) ESCALATE：同一会话连续拒绝达到配置阈值时必须产出 escalate 事件 + audit 行 + 计数 API。
+const escAuditBefore = readAuditLog()
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3, riskyThreshold: 3, semanticReuse: false, shadow: false, guard: false,
+  sessionMemory: false, selfLearn: false, allowRules: [], denyRules: []
+}), 'utf8')
+flashReply = 'RISKY:neutral'
+flashQueue = []
+for (let i = 0; i < 3; i++) {
+  const out = await approval({
+    agent: { session: { id: 'esc-test', cwd } },
+    toolName: 'write',
+    callId: 'call-esc-' + i,
+    reason: 'escalate sandbox to workspace-write: write ~/esc-proj/a.txt',
+  }, nextRejected)
+  assert.equal(out, 'rejected', 'rejection is propagated: ' + i)
+}
+const escEvent = readEvents().filter((ev) => ev.kind === 'escalate').pop()
+assert.ok(escEvent, 'escalate event recorded when consecutive rejects hit the limit')
+assert.equal(escEvent.consecutive, 3, 'escalate event records consecutive count')
+assert.equal(escEvent.total, 3, 'escalate event records total count')
+assert.match(readAuditLog().slice(escAuditBefore.length), /ESCALATE esc-test .*consecutive=3 total=3/, 'escalate audited')
+const escCounters = await callApi('/api/auto-approve/counters?sessionId=esc-test', 'GET')
+assert.equal(escCounters.json.consecutive, 3, 'counters API exposes consecutive rejects')
+assert.equal(escCounters.json.total, 3, 'counters API exposes total rejects')
+assert.equal(escCounters.json.limits.consecutive, 3, 'counters API exposes consecutive limit')
+assert.equal(escCounters.json.limits.total, 20, 'counters API exposes total limit')
+await callApi('/api/auto-approve/counters-reset', 'POST', { sessionId: 'esc-test' })
+const escReset = await callApi('/api/auto-approve/counters?sessionId=esc-test', 'GET')
+assert.equal(escReset.json.consecutive, 0, 'counters reset clears consecutive')
+assert.equal(escReset.json.total, 0, 'counters reset clears total')
+
+// 2) PROMOTE：同一指纹在 2 个会话被人工确认后（带明确用户意图），晋升为 learned 规则。
+const promoAuditBefore = readAuditLog()
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3, riskyThreshold: 3, semanticReuse: false, shadow: false, guard: false,
+  sessionMemory: true, promotionSessions: 2, selfLearn: false,
+  graduationThreshold: 99, graduationSessions: 99, allowRules: [], denyRules: []
+}), 'utf8')
+flashReply = 'RISKY:neutral'
+flashQueue = []
+for (const sid of ['promote-a', 'promote-b']) {
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: sid, cwd } },
+    toolName: 'write',
+    callId: 'call-' + sid,
+    reason: 'escalate sandbox to workspace-write: 用户已确认 write ~/promote-proj/a.txt',
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once')
+  assert.equal(nextCalls, 1, 'promotion candidate still asks the human: ' + sid)
+}
+const promoRules = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules.filter((r) => r && r.source === 'learned')
+assert.equal(promoRules.length, 1, 'cross-session promotion creates exactly one learned rule')
+assert.ok(JSON.stringify(promoRules[0]).includes('promote-proj'), 'promoted rule carries the confirmed fingerprint')
+assert.match(readAuditLog().slice(promoAuditBefore.length), /PROMOTE .*promote-proj/, 'promotion audited')
+
+// 3) SELFLEARN-CAP：自学习规则数达到上限后不再新增规则，并留下 SELFLEARN-CAP 审计行。
+const capAuditBefore = readAuditLog()
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3, riskyThreshold: 1, semanticReuse: false, shadow: false, guard: false,
+  sessionMemory: false, selfLearn: true, selfLearnThreshold: 1, selfLearnSessions: 1, selfLearnMaxRules: 1,
+  allowRules: [{ tool: 'bash', source: 'self-learned', signature: 'preexisting-sig' }]
+}), 'utf8')
+flashReply = 'SAFE'
+flashQueue = []
+const capPath = join(cwd, 'cap-project-' + Date.now() + '.txt')
+nextCalls = 0
+const capOut = await approval({
+  agent: { session: { id: 'cap-test', cwd } },
+  toolName: 'write',
+  callId: 'call-cap',
+  reason: 'escalate sandbox to workspace-write: write ' + capPath,
+}, nextAllowed)
+assert.equal(capOut, 'allowed-once')
+assert.equal(nextCalls, 0, 'flash-safe auto-allows before self-learning is evaluated')
+assert.match(readAuditLog().slice(capAuditBefore.length), /SELFLEARN-CAP .*已达自学习规则上限/, 'self-learning cap audited')
+const capRules = JSON.parse(readFileSync(allowlistPath, 'utf8')).allowRules.filter((r) => r && r.source === 'self-learned')
+assert.equal(capRules.length, 1, 'self-learning cap keeps the existing rule count')
 
 console.log('smoke: ok')

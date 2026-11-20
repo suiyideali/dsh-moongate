@@ -100,52 +100,6 @@ function aggregateProjectStats(events) {
   return { projects: projects.slice(0, 24), total: projects.reduce((n, p) => n + p.total, 0), projectCount: projects.length }
 }
 
-function aggregateShadowSuggestions(events) {
-  const buckets = new Map()
-  for (const ev of Array.isArray(events) ? events : []) {
-    if (!ev || ev.kind !== 'shadow-candidate') continue
-    const wouldPath = String(ev.wouldPath || ev.path || 'unknown')
-    const cwd = typeof ev.cwd === 'string' ? ev.cwd.trim() : ''
-    const commandPattern = String(ev.commandPattern || '')
-    const key = [wouldPath, ev.tool || '', ev.mode || '', ev.category || '', commandPattern, cwd].join('\u0000')
-    let b = buckets.get(key)
-    if (!b) {
-      b = {
-        key,
-        wouldPath,
-        tool: ev.tool || '',
-        mode: ev.mode || '',
-        category: ev.category || '',
-        commandPattern,
-        cwd,
-        count: 0,
-        lastTs: 0,
-        sampleJustification: String(ev.justification || ev.reason || '').slice(0, 160),
-        suggestion: null,
-      }
-      buckets.set(key, b)
-    }
-    b.count += 1
-    if (Number(ev.ts) > b.lastTs) b.lastTs = Number(ev.ts) || 0
-    if (!b.suggestion) {
-      // 已有规则/学习路径的候选不需要再建议；trust/session-memory 也不自动转规则，保持保守。
-      if (['flash-safe', 'semantic'].includes(wouldPath) || (wouldPath === 'trust' && commandPattern)) {
-        if (commandPattern && cwd) {
-          b.suggestion = buildRule(ev.tool, ev.mode, ev.category, commandPattern, { eligible: true, pattern: commandPattern, cwd: cwd.replace(/\/+$/, '') }, 'Shadow 观察候选：同一命令与目录', 'shadow-suggestion')
-        } else {
-          const fp = extractOperationFingerprint(ev.justification || '')
-          if (fp && /[\/~]/.test(fp)) b.suggestion = buildRule(ev.tool, ev.mode, ev.category, fp, null, 'Shadow 观察候选：同一路径指纹', 'shadow-suggestion')
-        }
-      }
-    }
-  }
-  const groups = Array.from(buckets.values())
-    .filter((g) => g.count >= 2)
-    .sort((a, b) => b.count - a.count || b.lastTs - a.lastTs)
-    .slice(0, 24)
-  return { groups, total: groups.reduce((n, g) => n + g.count, 0), candidateCount: groups.length }
-}
-
 /** 判定文本文件（跳过二进制/图片等） */
 const SNAPSHOT_BINARY_RE = /[\x00-\x08\x0e-\x1f]/
 function isSnapshotText(buf) {
@@ -373,8 +327,9 @@ function extractFiles(text) {
   return found.slice(0, 8)
 }
 
-// ── P0 执行止损观察（只记录，不改变任何审批结果）────────────────────────
-// 记录每个会话的签名重复次数；仅用于展示/后续 P1 阈值，不做阻断。
+// ── 执行止损调试日志（只写 audit.log，不改变任何审批结果）──────────────────
+// 记录每个会话的签名重复次数与涉及文件数，仅用于排查，不做阻断。
+// v0.8.0 起不再写 events.jsonl（历史 guard-candidate 事件仍可读，见 aggregateProjectStats）。
 const guardSessionState = new Map()
 const GUARD_SCRATCH_PREFIXES = ['/tmp/', '/private/tmp/', '/var/tmp/', '/private/var/tmp/', '/var/folders/', '/private/var/folders/']
 
@@ -451,7 +406,24 @@ function guardOperationSignature(toolName, mode, argsText, justification, cwd) {
   return String(toolName || 'unknown') + '|' + String(mode || '') + '|' + maskGuardText(raw)
 }
 
-function observeGuardCandidate(sessionId, toolName, mode, justification, argsText, sessionCwd, commandCtx) {
+/**
+ * 审计行里的签名摘要：home 折叠为 ~、去掉与行首重复的 tool|mode 前缀、过长截断。
+ * repeat 是按签名计数的，审计行不带签名就看不出“是哪个操作在重复”。
+ */
+function describeGuardSignature(toolName, mode, signature) {
+  const head = String(toolName || 'unknown') + '|' + String(mode || '')
+  let s = String(signature || '')
+  if (s.startsWith(head + '|')) s = s.slice(head.length + 1)
+  const home = homedir()
+  if (home) {
+    // 只在路径边界折叠：/Users/me-other 不能被折成 ~-other。
+    s = s.split(home + sep).join('~' + sep)
+    s = s.replace(new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w.-])', 'g'), '~')
+  }
+  return s.length > 120 ? s.slice(0, 119) + '…' : s
+}
+
+function observeGuardCandidate(sessionId, toolName, mode, justification, argsText, sessionCwd) {
   if (config.guard !== true) return
   try {
     const signature = guardOperationSignature(toolName, mode, argsText, justification, sessionCwd)
@@ -469,19 +441,16 @@ function observeGuardCandidate(sessionId, toolName, mode, justification, argsTex
     st.sigs.set(signature, repeat)
     st.total += 1
     const paths = collectGuardPaths(toolName, argsText, justification, sessionCwd)
-    recordApprovalEvent(sessionId, toolName, mode, '', justification, 'guard-candidate', {
-      kind: 'guard-candidate', path: 'guard-observe', args: argsText, cwd: sessionCwd,
-      commandPattern: commandCtx ? commandCtx.pattern : '',
-      guard: { signature, repeat, sessionTotal: st.total, files: paths.count, paths: paths.paths }
-    })
-    audit(`GUARD   ${toolName} mode=${mode || 'none'} repeat=${repeat} files=${paths.count}`)
+    // 只写审计日志：不再产生 events.jsonl 事件（该事件没有任何决策/规则消费者）。
+    audit(`GUARD   ${toolName} mode=${mode || 'none'} repeat=${repeat} total=${st.total} files=${paths.count} sig=${describeGuardSignature(toolName, mode, signature)}`)
   } catch { /* 观察失败绝不阻断审批 */ }
 }
 
 /**
  * 记录一次审批事件（结构化，供 client 审查界面轮询展示）。
  * kind: 'auto'（自动放行）/ 'manual-pending'（转人工等待）/ 'manual-approved'（人工通过）/
- *       'manual-rejected'（人工拒绝）/ 'guard-candidate'（P0 止损观察，不参与判定）
+ *       'manual-rejected'（人工拒绝）/ 'shadow-candidate'（Shadow 观察候选）/
+ *       'guard-candidate'（v0.7.x 历史止损观察事件，v0.8.0 起不再写入，仅兼容读取）
  * learningCount/threshold：人工通过时的学习进度（n/3）
  */
 function recordApprovalEvent(sessionId, toolName, mode, reason, justification, verdict, opts) {
@@ -2010,34 +1979,6 @@ export default {
       console.error(`[${NAME}] 注册项目统计 API 失败`, error)
     }
 
-    // ---- Shadow 候选聚合与规则建议（只读 events.jsonl；不自动建规则） ----
-    let offShadowSuggestionsRoute = null
-    try {
-      if (ctx.webServer && typeof ctx.webServer.register === 'function') {
-        offShadowSuggestionsRoute = ctx.webServer.register({
-          kind: 'exact',
-          path: '/api/auto-approve/shadow-suggestions',
-          handler: async (req, res) => {
-            if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return }
-            const events = []
-            try {
-              const text = readFileSync(EVENTS_PATH, 'utf8')
-              for (const line of text.split('\n')) {
-                if (!line.trim()) continue
-                try { events.push(JSON.parse(line)) } catch { /* 跳过坏行 */ }
-              }
-            } catch { /* 文件不存在：返回空 */ }
-            const result = aggregateShadowSuggestions(events)
-            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-cache' })
-            res.end(JSON.stringify(Object.assign({ ok: true }, result)))
-          },
-        })
-        console.log(`[${NAME}] Shadow 建议 API 已注册：/api/auto-approve/shadow-suggestions`)
-      }
-    } catch (error) {
-      console.error(`[${NAME}] 注册 Shadow 建议 API 失败`, error)
-    }
-
     // ---- 规则管理 API（设置页：查看/修改放行与阻塞规则 + 一键初始化） ----
     let offRulesRoute = null
     let offSetupRoute = null
@@ -2695,8 +2636,8 @@ export default {
         const commandPattern = commandCtx ? commandCtx.pattern : ''
         // Shadow 模式：命中“本可自动放行”时只记录候选，仍转人工；不写规则/学习/快照
         const shadowMode = config.shadow === true
-        // P0 执行止损观察：记录签名重复/文件数，不改变任何判定
-        observeGuardCandidate(sessionId, toolName, mode, justification, judgeArgs, sessionCwd, commandCtx)
+        // 执行止损调试日志：只写 audit.log，不改变任何判定
+        observeGuardCandidate(sessionId, toolName, mode, justification, judgeArgs, sessionCwd)
 
         // 转人工统一处理：记录 pending → 交下游（web answerer）→ 记录终态事件（关闭提示条）
         const forwardToHuman = async (sid, tName, tMode, rsn, jst, cat, why) => {
