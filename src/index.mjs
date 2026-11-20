@@ -1160,6 +1160,7 @@ const SELFLEARN_DENY_DIRS = [
   '~/.password-store', '~/.local/share/keyrings', '~/Library',
   '/etc', '/private/etc', '/usr', '/bin', '/sbin', '/Library', '/System',
   '/Applications', '/opt', '/var/db', '/var/log', '/private/var/db', '/private/var/log',
+  '/boot', '/proc', '/sys', '/var/root',
 ]
 function patternDir(pattern) {
   const s = String(pattern || '')
