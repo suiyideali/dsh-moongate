@@ -406,6 +406,19 @@ function guardOperationSignature(toolName, mode, argsText, justification, cwd) {
   return String(toolName || 'unknown') + '|' + String(mode || '') + '|' + maskGuardText(raw)
 }
 
+/**
+ * 审计行里的签名摘要：home 折叠为 ~、去掉与行首重复的 tool|mode 前缀、过长截断。
+ * repeat 是按签名计数的，审计行不带签名就看不出“是哪个操作在重复”。
+ */
+function describeGuardSignature(toolName, mode, signature) {
+  const head = String(toolName || 'unknown') + '|' + String(mode || '')
+  let s = String(signature || '')
+  if (s.startsWith(head + '|')) s = s.slice(head.length + 1)
+  const home = homedir()
+  if (home) s = s.split(home).join('~')
+  return s.length > 120 ? s.slice(0, 119) + '…' : s
+}
+
 function observeGuardCandidate(sessionId, toolName, mode, justification, argsText, sessionCwd) {
   if (config.guard !== true) return
   try {
@@ -425,7 +438,7 @@ function observeGuardCandidate(sessionId, toolName, mode, justification, argsTex
     st.total += 1
     const paths = collectGuardPaths(toolName, argsText, justification, sessionCwd)
     // 只写审计日志：不再产生 events.jsonl 事件（该事件没有任何决策/规则消费者）。
-    audit(`GUARD   ${toolName} mode=${mode || 'none'} repeat=${repeat} total=${st.total} files=${paths.count}`)
+    audit(`GUARD   ${toolName} mode=${mode || 'none'} repeat=${repeat} total=${st.total} files=${paths.count} sig=${describeGuardSignature(toolName, mode, signature)}`)
   } catch { /* 观察失败绝不阻断审批 */ }
 }
 

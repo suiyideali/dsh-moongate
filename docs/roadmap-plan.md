@@ -108,7 +108,9 @@
 - 不同 program 不会因理由相似被判 SAME；无样本/验证失败继续转人工。
 - `npm test` 覆盖真实参数写入与 prompt 内容。
 
-## 8. Shadow 候选分组与规则建议（P2）
+## 8. Shadow 候选分组与规则建议（P2）——已移除（v0.8.0）
+
+> 2026-11-21：本项已整体移除。10 周实测 289 条候选、0 条被采纳，唯一可重放出的建议是无意义的 `contains: domain/www`；相关代码（`aggregateShadowSuggestions`、`shadow-suggestion` 来源、`GET /api/auto-approve/shadow-suggestions`、设置页「创建规则」）已删除，Shadow 录制与 `wouldPath` 保留。以下为历史设计记录。
 
 - 只读 `events.jsonl` 中的 `shadow-candidate`，按 `wouldPath|tool|mode|category|commandPattern|cwd` 分组。
 - 只对 `flash-safe` / `semantic`（以及带命令的 `trust`）生成保守建议；已有规则路径（`rule`/`learned`/`fpHit`/`flash-same`）不再建议。

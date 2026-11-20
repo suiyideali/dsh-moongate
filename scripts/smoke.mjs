@@ -686,6 +686,7 @@ const guardLines = guardSeg().split('\n').filter((line) => line.includes('GUARD 
 assert.equal(guardLines.length, 2, 'one GUARD audit line per approval request')
 assert.match(guardLines[0], /repeat=1 total=1 files=0/, 'first guard line records repeat/total/files')
 assert.match(guardLines[1], /repeat=2 total=2 files=0/, 'second identical candidate increments repeat')
+assert.match(guardLines[0], / sig=.+$/, 'guard line carries the operation signature so repeat is traceable')
 assert.equal(readEvents().filter((ev) => ev.kind === 'guard-candidate').length, 0, 'guard writes no events.jsonl record')
 // 文件预算：只统计项目内路径，/tmp 等临时目录不计入。
 const guardProjectCwd = join(cwd, 'guard-project')
@@ -719,6 +720,9 @@ await approval({
 const guardWriteLines2 = guardSeg().split('\n').filter((line) => line.includes('GUARD   write'))
 assert.equal(guardWriteLines2.length, 2, 'second file request logged')
 assert.match(guardWriteLines2[1], /repeat=2 .*files=1/, 'same file signature increments repeat')
+const guardSigOf = (line) => (line.match(/ sig=(.*)$/) || [])[1]
+assert.ok(guardSigOf(guardWriteLines2[0]), 'write guard line carries a signature')
+assert.equal(guardSigOf(guardWriteLines2[0]), guardSigOf(guardWriteLines2[1]), 'same file keeps one signature across content changes')
 // 兼容性：历史 guard-candidate 事件仍被 project-stats 忽略（不改变统计口径）。
 appendFileSync(eventsPath, JSON.stringify({
   id: 9100, ts: Date.now(), sessionId: 'guard-legacy', tool: 'write', mode: 'workspace-write',
@@ -739,6 +743,19 @@ feedToolCall('guard-test-2', 'call-guard-3', 'git status')
 const guardDisabled = await approval(bashRequest('guard-test-2', 'call-guard-3', 'git status'), nextAllowed)
 assert.equal(guardDisabled, 'allowed-once')
 assert.equal(readAudit().slice(guardOffBefore.length).split('\n').filter((line) => line.includes('GUARD   ')).length, 0, 'guard off writes no GUARD line')
+
+// 向后兼容：遗留 source（如已移除的 shadow-suggestion）仍能读取，规则不被删除。
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3,
+  allowRules: [
+    { tool: 'bash', mode: 'danger-full-access', contains: 'echo legacy-suggestion', source: 'shadow-suggestion', hitCount: 0, description: '来自已移除的 Shadow 建议' },
+  ],
+}), 'utf8')
+const legacyCfg = await callApi('/api/auto-approve/rules', 'GET')
+const legacyRule = (legacyCfg.json.config.allowRules || []).find((r) => r.source === 'shadow-suggestion')
+assert.ok(legacyRule, 'legacy shadow-suggestion rule is still readable')
+assert.equal(legacyRule.contains, 'echo legacy-suggestion', 'legacy rule fields survive loading')
+assert.equal(legacyRule.disabled, false, 'legacy rule is not disabled by loading')
 
 const patchPath = new URL('../patches/dsh-approval-gate@0.5.0.patch', import.meta.url)
 assert.ok(existsSync(patchPath), 'fork patch present')
