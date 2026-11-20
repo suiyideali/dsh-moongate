@@ -4,7 +4,7 @@
 
 基线：`dsh-approval-gate@0.5.0`（npm）→ 上游 [moon09300731/dsh-approval-gate](https://github.com/moon09300731/dsh-approval-gate)，MIT。
 
-本 fork 只修改了两个文件：`src/index.mjs`（host）与 `client.js`（浏览器端）；未改 `package.json`、`cordis.patch.yml`、`README`（上游）。
+本 fork 主要修改 `src/index.mjs`（host）与 `client.js`（浏览器端），并维护 `scripts/smoke.mjs`、`docs/releases/`、`FORK-CHANGES.md`、`package.json`（版本号）与 README；`cordis.patch.yml` 保持上游语义。
 
 ## 1. 兼容性修复（必须）
 
@@ -52,7 +52,7 @@
 - `allowlist.json`：规则与配置（含新增字段）
 - `learning.json`：确认制学习计数与样本
 - `memory.json`：会话批准记忆的跨会话累计 + 毕业进度
-- `audit.log`：判定审计（ALLOW/TRUST/SESSIONMEM/LEARN/GRADUATE/PROMOTE/NEGATIVE/ESCALATE/…）
+- `audit.log`：判定审计（ALLOW/TRUST/SESSIONMEM/LEARN/GRADUATE/PROMOTE/NEGATIVE/ESCALATE/GUARD/…）
 - `events.jsonl`：审批事件（供审批视图，含 remembered/args 等字段）
 - `snapshots/`：自动放行前文件快照
 
@@ -67,9 +67,20 @@
 - 规则库启停：停用跳过、启用命中，`hitCount` 累加
 - 拒绝计数 API：查询与重置
 - 参数录入：事件与审批视图显示实际命令
+- v0.8.0 回归：拒绝升级（ESCALATE）、跨会话晋升（PROMOTE）、自学习上限（SELFLEARN-CAP）三条生产零触发路径由 smoke 覆盖
 
 ## 6. 注意
 
 - 本 fork 面向 DSH 0.2.x（实测 0.2.2-rc.1）；升级 DSH 后需重新验证 API。
 - 学习/裁决依赖模型判定与用户批准历史，不能替代高风险场景的人工审查。
 - 发布时保留上游 LICENSE 与署名，注明 "Based on moon09300731/dsh-approval-gate v0.5.0"。
+
+## 7. v0.8.0 零使用路径裁剪
+
+依据生产数据（`~/.dsh/auto-approve/`，2026-09-05 → 2026-11-20，其中 7 天窗口 2026-11-13T10:17Z–2026-11-20T10:10Z）做的最小删除；判定标准为「7 天里是否改变问人/放行结果」「是否有下游消费者」「删除是否破坏旧配置」。
+
+| 路径 | 证据 | 动作 | 兼容性风险与处理 |
+| --- | --- | --- | --- |
+| Shadow 建议规则链路（`aggregateShadowSuggestions`、`'shadow-suggestion'` 来源、`/api/auto-approve/shadow-suggestions`、设置页「创建规则」按钮） | 10 周 289 条 `shadow-candidate` 全部来自 2026-11-14 一天（当天临时开启 shadow）；0 条被采纳为规则；分组键缺 cwd/commandPattern/category，262 条互不相同的命令被并成一组，真实数据 0 个分组能产出建议 | 删除聚合函数、HTTP 路由与前端候选/建议 UI（CSS、state、fetch、按钮） | 无：shadow 模式本身、`wouldPath` 记录与按项目统计保留；历史 `shadow-candidate` 事件仍被 `project-stats` 统计 |
+| guard-observe 事件记录（`guard-candidate`） | 84 条记录（2026-11-18/19/20），无任何决策消费者：`aggregateProjectStats` 显式跳过、决策构成/自动率全部排除，仅记录页展示；该模式本就不改变审批结果 | 降级为显式调试开关：`observeGuardCandidate` 不再写 `events.jsonl`，只在 `audit.log` 追加 `GUARD ... repeat/total/files` 行；`config.guard` 开关保留 | 历史 `guard-candidate` 事件仍可读、仍被 `project-stats` 忽略；`guard` 字段与开关语义不变，`allowlist.json` 无需迁移 |
+| PROMOTE（跨会话晋升）、SELFLEARN-CAP（自学习规则上限）、ESCALATE（`denyEscalate*` 拒绝升级） | 代码均可达；10 周全库审计计数 PROMOTE 0 / PROMOTE-SKIP 0 / SELFLEARN-CAP 0 / ESCALATE 0（全库 `manual-rejected` 为 0，拒绝升级没有输入） | 保留并补 `scripts/smoke.mjs` 回归：3 次拒绝触发 `escalate` 事件 + 计数 API、2 个会话确认后 `learned` 规则、自学习达上限后不再新增并写 `SELFLEARN-CAP` | 无（不删除）；测试锁定语义，防止未来重构静默失效 |
