@@ -1150,11 +1150,44 @@ function rememberApproved(sessionId, tool, mode, fp, category, justification, cm
   }
   return { promoted: false, sessions }
 }
+// 签名宽窄闸门：自学习/自动毕业都不许把「过宽目录类」变成免确认通道。
+// 规则级白名单在硬风险类目（凭据/删除/系统）之前生效，所以 ~/*、/*、~/.* 这类签名一旦毕业，
+// 就等于绕开人工闸门放行整个目录；敏感目录（凭据、插件代码、系统目录）连 3 次 SAFE 也不学。
+const SELFLEARN_DENY_DIRS = [
+  '~/.ssh', '~/.aws', '~/.gnupg', '~/.kube', '~/.config', '~/.dsh',
+  '~/.password-store', '~/.local/share/keyrings', '~/Library/Keychains',
+  '/etc', '/usr', '/bin', '/sbin', '/Library', '/System', '/private/etc',
+]
+function patternDir(pattern) {
+  const s = String(pattern || '')
+  const cut = s.lastIndexOf('/*')
+  return cut < 0 ? s : s.slice(0, cut)
+}
+// 返回空串表示可学习；否则返回不可学习的原因（用于审计）
+function signatureTooBroad(patterns) {
+  const list = Array.isArray(patterns) ? patterns : []
+  if (list.length === 0) return 'no-pattern'
+  for (const pattern of list) {
+    const dir = patternDir(pattern)
+    const segs = dir.split('/').filter(Boolean)
+    // 家目录/根目录第一层（~/*、/*）几乎没有区分度，深度至少 2 层才允许学习
+    const depth = dir.startsWith('~') ? segs.length - 1 : segs.length
+    if (!dir || depth < 2) return `too-broad ${pattern}`
+    const hit = SELFLEARN_DENY_DIRS.find((d) => dir === d || dir.startsWith(d + '/'))
+    if (hit) return `sensitive ${pattern}`
+  }
+  return ''
+}
 // 自学习：从 Flash 的 SAFE 判定中学习（不需要人工确认）；有路径签名、无拒绝历史、跨会话才毕业
 function recordSelfObservation(sessionId, toolName, mode, justification, eventId) {
   if (config.selfLearn !== true) return null
   const sig = opSignature(toolName, mode, justification)
   if (!sig) return null
+  const tooBroad = signatureTooBroad(signaturePaths(justification))
+  if (tooBroad) {
+    audit(`SELFLEARN-SKIP ${sig} 签名不可学习：${tooBroad}`)
+    return { graduated: false, skipped: tooBroad }
+  }
   const denyHit = (config.denyRules || []).some((r) => matchRule([r], toolName, mode, 'neutral', justification))
   if (denyHit) return null
   const prev = memoryStore.selfLearn[sig] || {
@@ -1215,6 +1248,11 @@ function recordSignatureApproval(sessionId, toolName, mode, justification) {
   const intentOk = explicitIntent(justification)
   const needCount = intentOk ? threshold : threshold + 1
   if (prev.count >= needCount && sessions >= (config.graduationSessions || 2) && distinctFps >= 2 && !denyHit) {
+    const tooBroad = signatureTooBroad(prev.patterns || signaturePaths(justification))
+    if (tooBroad) {
+      audit(`GRADUATE-SKIP ${sig} 签名不可学习：${tooBroad}`)
+      return { graduated: false, count: prev.count, sessions, skipped: tooBroad }
+    }
     const exists = (config.allowRules || []).some((r) => r && r.graduation && r.signature === sig)
     if (!exists) {
       const rule = {

@@ -34,6 +34,7 @@
 | 拒绝计数升级（D） | 连续 3 / 累计 20 次拒绝 → `escalate` 事件 + 审计 `ESCALATE` + 审批视图红色「需人工介入」；批准后连续计数清零；批量计数可通过 API 查看/重置 | `/api/auto-approve/counters`、`counters-reset` 已验证 |
 | 两段式判定（B） | 快筛 `ALLOW/REVIEW` + 复评；`twoStage`、`stage1Provider/stage1Model` 可配；默认关闭 | 默认 Flash 快筛对 danger-full-access 一律 REVIEW（无收益）；pro/gpt 覆盖调用失败（模型路由），保持关闭 |
 | 自学习（默认开） | 从 Flash 累计 SAFE 判定毕业签名（`selfLearn`、阈值/会话/规则上限可配），无需人工确认；无拒绝历史才毕业，负反馈会删除 | 阈值 3/会话 1 下实测：3 次 SAFE 后生成规则，第 4 次命中规则跳过 Flash |
+| 签名宽窄闸门 | `signatureTooBroad()`：家目录/根目录第一层（`~/*`、`/*`）与敏感目录（`~/.ssh`、`~/.dsh`、`~/.aws`、`/etc`、`/usr` 等）永不学习；自学习与自动毕业两条路径都拦截，避免一条规则放行整个目录并绕过硬风险类目的人工闸门 | 审计 `SELFLEARN-SKIP` / `GRADUATE-SKIP ... 签名不可学习`；smoke 用例：`~/xxx.txt` 连续 3 次 SAFE 不毕业，安全目录 2 层深度（如 `<tmp>/project/*.txt`）仍正常毕业 |
 | 测试与 CI | `npm test`（node --check + smoke）；GitHub Actions 校验补丁可应用到上游 0.5.0；新增英文 README | smoke 可本地运行；CI 需 push 后验证 |
 | 设置页 UI 排序 | 卡片顺序 ①→⑥；② 去掉重复筛选；⑤ 合并学习与自动学习；⑥ 行支持换行 | 客户端刷新后生效 |
 

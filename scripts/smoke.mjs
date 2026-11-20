@@ -798,4 +798,29 @@ const noSelfLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.con
   .find((r) => r && r.source === 'self-learned')
 assert.ok(!noSelfLearned, 'explicit selfLearn=false creates no self-learned rule')
 
+// 过宽签名不学习：家目录第一层（~/xxx.txt）连 3 次 SAFE 也不得沉淀规则（否则等于放行整个 ~）
+const slBroadPath = '~/selflearn-broad-' + Date.now() + '.txt'
+writeFileSync(allowlistPath, JSON.stringify({
+  version: 3, riskyThreshold: 1, semanticReuse: false, shadow: false,
+  sessionMemory: false, selfLearn: true, selfLearnThreshold: 3, selfLearnSessions: 1,
+  allowRules: []
+}), 'utf8')
+await callApi('/api/auto-approve/rules', 'POST', { op: 'set', kind: 'selfLearn', value: true })
+for (let i = 0; i < 3; i++) {
+  const callId = 'call-selflearn-broad-' + i
+  feedToolCallTool('selflearn-broad', callId, 'write', { path: slBroadPath, content: 'x' })
+  nextCalls = 0
+  const out = await approval({
+    agent: { session: { id: 'selflearn-broad', cwd } },
+    toolName: 'write', callId,
+    reason: 'escalate sandbox to danger-full-access: write ' + slBroadPath,
+  }, nextAllowed)
+  assert.equal(out, 'allowed-once', 'broad signature still auto-allows via Flash SAFE')
+  assert.equal(nextCalls, 0)
+}
+const broadLearned = (await callApi('/api/auto-approve/rules', 'GET')).json.config.allowRules
+  .find((r) => r && r.source === 'self-learned')
+assert.ok(!broadLearned, 'broad ~/* signature is never self-learned')
+assert.ok(readFileSync(join(dataDir, 'audit.log'), 'utf8').includes('SELFLEARN-SKIP'), 'broad signature veto is audited')
+
 console.log('smoke: ok')
