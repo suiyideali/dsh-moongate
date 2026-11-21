@@ -265,6 +265,25 @@ flowchart TD
 
 Self-learning is on by default so a new user can reduce repeat approvals without studying the settings first. It is still the only layer without a human label, so guardrails apply: path signature, no deny history, verdict/session thresholds, a 50-rule cap; dangerous categories never enter learning, and rejection/revert removes the rule and progress. Turn it off in ⑤ for a fully conservative setup; an explicit `false` is never overridden by an upgrade.
 
+#### Signatures that are never learned (since v0.7.2)
+
+A signature is derived from normalized paths (`dir/*ext`). Both self-learning and manual graduation pass a width/sensitivity gate first; three classes are rejected outright:
+
+- **Too broad**: rooted at `~` or `/` with fewer than 2 segments — `~/*`, `/tmp/*`, `/*`. One such rule would cover a whole tree (`~/proj/*` and `/tmp/proj/*` with 2+ segments stay learnable).
+- **Sensitive**: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config`, `~/.dsh`, `~/Library`, `/etc`, `/usr`, `/opt`, `/var/db`, `/var/log`, `/Applications`, `/System`, `/Library`, `/bin`, `/sbin`, `/boot`, `/proc`, `/sys`, `/var/root` and more — see the [v0.7.2 release note](docs/releases/v0.7.2.md) for the full list (including `/private/...` real paths after `realpath`). Paths are normalized first (`..`, `//`, case, symlinks), so `/tmp/../etc/*`, `//etc/ssh/*` and `~/.SSH/*` are all caught.
+- **Dot-directories in the home directory**: credential and cache directories such as `~/.docker/*`, `~/.m2/*`, `~/.cargo/*` (first segment starts with `.`). Workspace paths such as `~/proj/.cache/*` are unaffected.
+
+One more class is rejected as `other-home`: other users' home directories (`/Users/<other>`, `/home/<other>`, `/root`).
+
+A signature stopped by the gate creates no rule and never auto-allows later matches; **broad rules that already existed before the upgrade are not deleted** — disable or remove them by hand in ⑥ Rules. Each skip is audited once per signature and reason (keyed by `tag|signature|reason`):
+
+```
+SELFLEARN-SKIP <sig> 签名不可学习：<reason>
+GRADUATE-SKIP <sig> 签名不可学习：<reason>
+```
+
+`GRADUATE-SKIP` also has a second, non-gate form (`count=… sessions=… fps=… deny=… intent=…`, a progress line when conditions are not met, not deduplicated) — do not confuse the two.
+
 ### How cross-session learning works
 
 | Path | Trigger | Result |
